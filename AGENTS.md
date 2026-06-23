@@ -30,6 +30,8 @@ Two tool prefixes are available:
 - Always resolve project IDs via `search_projects` before creating workflows.
 - **All workflow names must be prefixed with `COOLTECH_`** (e.g. `COOLTECH_Inbox_to_Job`).
 - **Do not use IF nodes** — use Switch nodes (v3.4, rules mode) for all branching logic.
+- For this workflow, `onError: continueErrorOutput` must be paired with actual error-output connections in the live graph. After publish, verify error branches still connect to the intended fallback nodes; if they do not, add them with atomic `update_workflow` connection ops.
+- ServiceM8 inbox content is not guaranteed to land in a single stable field. Today the workflow uses `body || message_text` when building the description. Possible future hardening: normalize this once in `Filter & Route` into a canonical field such as `sourceText`, and require all downstream parsing nodes to use only that field.
 
 ## ServiceM8 Integration
 
@@ -90,3 +92,4 @@ Read these files to get the exact parameter schema before constructing nodes:
 - Online Service Enquiry messages update the created job description and queue.
 - Cooltech Website enquiries create/update the job contact, update the job description, and assign the target queue.
 - If a conversion succeeds in ServiceM8 but the node reports an error, the fallback UUID-resolution path prevents the workflow from stopping on that item.
+- The live graph now also includes explicit error-output connections so queue assignment and description update still run after convert-node error outputs when the job was actually created.

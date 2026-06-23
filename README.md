@@ -89,6 +89,14 @@ The workflow includes safeguards so it is less likely to fail when:
 
 It processes matching items one by one and double-checks the created job before updating it.
 
+## Notes For Future Improvement
+
+The current version works, but there is one internal improvement already identified for later.
+
+ServiceM8 does not always return the enquiry text in exactly the same field. In some cases it may appear in one text field, and in other cases in another. The automation currently handles this safely, but a future refinement may standardize that text into one internal field earlier in the process so later steps only read from one place.
+
+This is not required for normal use today. It is simply a design improvement that may be applied later to make the automation easier to maintain.
+
 ## What It Does Not Do
 
 This automation does not:
@@ -142,4 +150,3 @@ This step-by-step design was chosen to make the automation more dependable and e
 - Project: `COOLTECH_Inbox_to_Job`
 - Platform: ServiceM8 + n8n
 - Live workflow ID: `tlomuOHDE0aCDwwp`
-

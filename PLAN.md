@@ -14,6 +14,8 @@ Build an n8n workflow (`COOLTECH_Inbox_to_Job`) on the **katwill** n8n instance 
 - ✅ Per-item looping is now explicit via `Split In Batches` (`batchSize: 1`) and both branches return control to the loop.
 - ✅ A 500 ms delay now sits between conversion and inbox re-fetch on both branches.
 - ✅ Job UUID resolution now falls back to `converted_to_job_uuid || convertResult.uuid`, and unresolved items are skipped instead of crashing the run.
+- ✅ The live graph now has explicit error-output connections for the convert/fetch/update nodes, so queue and description updates continue even when ServiceM8 conversion succeeds but returns an error output.
+- ✅ Job `#2600953SM` was backfilled directly via the ServiceM8 API after confirming the workflow had created the job but skipped the final update step.
 - ℹ️ Earlier manual dry runs found no matching inbox items after filtering, but live verification with a real enquiry has now confirmed end-to-end behavior.
 - 📦 Archived: `3ei7WaLiYVwDZbaR` (HTTP Request with `httpHeaderAuth` credential), `CQIRmHfW3yYJkJcn` (HTTP Request with `X-Api-Key` header), `oWD4WUSEcWmSZwd6` (older native-node workflow with loop/config issues).
 - ✅ Project: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
@@ -123,6 +125,7 @@ Another important correction came from conversion testing:
 - ServiceM8 conversion can succeed even when the convert node reports a failure.
 - Because of that, the workflow now waits 500 ms, re-fetches the inbox item, and resolves the created job UUID via `converted_to_job_uuid || convertResult.uuid`.
 - Unresolved conversions are routed to `skip` so the loop can continue processing later items instead of halting.
+- The published graph must also carry explicit error-output connections; `continueErrorOutput` by itself was not enough in the live workflow version that failed to assign queue and description on Job `#2600953SM`.
 
 ### Key IDs / context (don't lose)
 
@@ -146,6 +149,8 @@ Another important correction came from conversion testing:
 - **20 most recent only**: We sort inbox by date descending and take the top 20 before filtering. If none match criteria, the array is empty → downstream nodes are skipped → workflow exits with success.
 - **Loop control is explicit**: `Split In Batches` ensures all matched items are processed one at a time.
 - **Conversion is eventually consistent**: after conversion the workflow waits 500 ms, re-fetches the inbox item, and falls back to the convert node response if the inbox record has not updated yet.
+- **Current text-source rule**: description parsing currently uses `body || message_text` because ServiceM8 inbox payloads are not uniform across all message types.
+- **Future hardening option**: normalize the inbound text once in `Filter & Route` into a canonical field such as `sourceText`, and make all downstream nodes consume only that field. This has been documented but not applied yet.
 - **Live verification is complete**: the current published workflow has now processed a real enquiry successfully, not just synthetic/manual dry runs.
 
 ---

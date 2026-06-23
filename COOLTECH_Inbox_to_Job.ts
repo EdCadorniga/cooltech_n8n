@@ -320,10 +320,11 @@ const mergeOnlineData = node({
       jsCode: `const item = $("Filter & Route").item.json;
 const convertResult = $("Convert Online to Job").item.json || {};
 const jobUuid = $json.converted_to_job_uuid || convertResult.uuid || '';
-const body = item.body || '';
-const lines = body.split('\\n');
-const serviceIndex = lines.findIndex((line) => line.startsWith('Service'));
-const description = serviceIndex >= 0 ? lines.slice(serviceIndex).join('\\n') : body;
+const body = item.body || item.message_text || '';
+const normalizedBody = String(body).trim();
+const lines = normalizedBody.split('\\n');
+const serviceIndex = lines.findIndex((line) => line.trimStart().startsWith('Service'));
+const description = serviceIndex >= 0 ? lines.slice(serviceIndex).join('\\n').trim() : normalizedBody;
 
 return [{
   json: {
@@ -424,8 +425,9 @@ const mergeWebsiteData = node({
       jsCode: `const item = $("Filter & Route").item.json;
 const convertResult = $("Convert Website to Job").item.json || {};
 const jobUuid = $json.converted_to_job_uuid || convertResult.uuid || '';
-const body = item.body || '';
-const lines = body.split('\\n');
+const body = item.body || item.message_text || '';
+const normalizedBody = String(body).trim();
+const lines = normalizedBody.split('\\n');
 const emailLine = lines.find((line) => line.startsWith('Email:'));
 const phoneLine = lines.find((line) => line.startsWith('Phone:'));
 const nameLine = lines.find((line) => line.startsWith('Name:'));
@@ -435,8 +437,8 @@ const fullName = nameLine ? nameLine.replace('Name:', '').trim() : (item.fromNam
 const nameParts = fullName.split(/\\s+/).filter(Boolean);
 const contactFirst = nameParts[0] || fullName;
 const contactLast = nameParts.slice(1).join(' ');
-const enquiryIndex = body.indexOf("You've received a new enquiry");
-const description = enquiryIndex >= 0 ? body.substring(enquiryIndex) : body;
+const enquiryIndex = normalizedBody.indexOf("You've received a new enquiry");
+const description = enquiryIndex >= 0 ? normalizedBody.substring(enquiryIndex).trim() : normalizedBody;
 
 return [{
   json: {
