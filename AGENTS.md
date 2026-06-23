@@ -29,16 +29,54 @@ Two tool prefixes are available:
 - When editing existing workflows, use `update_workflow` with atomic operations rather than recreating.
 - Always resolve project IDs via `search_projects` before creating workflows.
 - **All workflow names must be prefixed with `COOLTECH_`** (e.g. `COOLTECH_Inbox_to_Job`).
+- **Do not use IF nodes** — use Switch nodes (v3.4, rules mode) for all branching logic.
 
 ## ServiceM8 Integration
 
 - Base URL: `https://api.servicem8.com/api_1.0`
-- Auth: `X-Api-Key` header (use `httpHeaderAuth` credential type)
-- No native n8n node — use HTTP Request nodes.
-- Main endpoints: inbox, job, jobcontact, queue.
+- Auth: API key sent as `X-Api-Key` header (or via the native ServiceM8 node credential — see Auth section below).
+- **Credential: `Gii70BGIUVSFSVwi`** — name: "COOLTECH ServiceM8 Credentials account", type: `serviceM8CredentialsApi`. This is the native ServiceM8 community node credential. Auto-assigns to all `serviceM8` resource nodes during workflow creation.
+- A native ServiceM8 community node exists (`@servicem8/n8n-nodes-servicem8.serviceM8`) and **should be preferred** over HTTP Request nodes. The `get_node_types` tool fails to load type definitions for it (the `@` prefix breaks the package-name validator), so construct node parameters manually by reading the source: `https://github.com/servicem8/n8n-nodes-servicem8/tree/master/nodes/ServiceM8`.
+- Main resources: `attachment`, `client`, `email`, `inbox`, `job`, `jobBooking`, `jobCheckin`, `search`, `sms`.
+- Rate limits: 180 req/min, 20,000 req/day.
+- **Queue target**: `X-New Jobs Created Automation` → UUID `423e140e-89ce-4616-a685-245674278d7b`.
+
+### Auth — use the native node + credential
+
+The previous attempts (HTTP Request + `httpHeaderAuth` credential, then HTTP Request + manual `X-Api-Key` header) failed to auto-assign credentials and were archived. The working approach:
+- Use `@servicem8/n8n-nodes-servicem8.serviceM8` v1 nodes
+- Reference credentials in code via `credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') }`
+- n8n auto-assigns the credential to all matching nodes on workflow creation
+- Do **not** try to resolve queue UUIDs at runtime with `search.objectSearch`: the native node exposes `objectSearch`, but the ServiceM8 API rejects `objectType: 'queue'`. Store the queue UUID in `CONFIG` instead.
+
+The X-Api-Key value `smk-f6d33c-b98e46653ac5783f-4ccc6dd94e040eb2` lives in the credential record, not in the workflow. CONFIG node only holds non-secret config (`targetQueueName`).
+
+### Message Match Criteria
+
+1. **Online Service Enquiry** — `message_text` starts with `Online Service Enquiry`. Copy body from the `Service` line down into job description.
+2. **New Enquiry - Cooltech Website** — `subject` contains `New Enquiry - Cooltech Website`. Parse body for contact name/email/phone; set as job contact; copy everything under `You've received a new enquiry` into job description.
+
+### Native ServiceM8 Node Parameter Reference (verified from source)
+
+Read these files to get the exact parameter schema before constructing nodes:
+- `nodes/ServiceM8/Inbox/InboxDescription.ts` — for `inbox.getMany` (params: `inboxFilter`, `inboxSearch`, `limit`) and `inbox.convertToJob` (params: `uuid`, optional `jobTemplateUUID`, `fields` collection).
+- `nodes/ServiceM8/Job/JobDescription.ts` — for `job.*` operations. Most operations use `uuid` (required) plus a `fields` collection. The `update` and `updateContacts` operations may be defined in `Job/JobObjects.ts`.
+- `nodes/ServiceM8/Search/SearchDescription.ts` — for `search.objectSearch` and `search.globalSearch`.
+- `nodes/ServiceM8/Inbox/InboxObjects.ts` and `Job/JobObjects.ts` — for `fields` collection items.
+
+**Known mistakes to avoid** (from prior session):
+- `inboxMessageUuid` is wrong — the parameter is `uuid`.
+- `jobUuid`, `jobDescription`, `queueUuid` as top-level parameters are wrong — most operations take `uuid` + a `fields` collection.
 
 ## GitHub Repository
 
 - Remote: `https://github.com/EdCadorniga/cooltech_n8n`
 - Always commit workflow changes to this repo for version tracking.
 - Keep `.env` in `.gitignore` — never commit secrets.
+
+## Active n8n Resources (current session)
+
+- **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
+- **Active workflow**: `oWD4WUSEcWmSZwd6` ("COOLTECH_Inbox_to_Job", 12 nodes, native ServiceM8 nodes, published and active)
+- **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
+- **Archived workflows** (don't reuse): `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`
