@@ -77,6 +77,16 @@ Read these files to get the exact parameter schema before constructing nodes:
 ## Active n8n Resources (current session)
 
 - **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
-- **Active workflow**: `oWD4WUSEcWmSZwd6` ("COOLTECH_Inbox_to_Job", 12 nodes, native ServiceM8 nodes, published and active)
+- **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 21 nodes, native ServiceM8 nodes, published and active)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
-- **Archived workflows** (don't reuse): `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`
+- **Archived workflows** (don't reuse): `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`, `oWD4WUSEcWmSZwd6`
+
+## Current Working Behavior
+
+- The live workflow has been verified against a real enquiry and is working.
+- Inbox polling scans the 20 most recent inbox items.
+- Matching items are processed one at a time via `Split In Batches` with `batchSize: 1`.
+- After converting an inbox item to a job, the workflow waits **500 ms**, re-fetches the inbox item, and resolves the job UUID via `converted_to_job_uuid || convertResult.uuid`.
+- Online Service Enquiry messages update the created job description and queue.
+- Cooltech Website enquiries create/update the job contact, update the job description, and assign the target queue.
+- If a conversion succeeds in ServiceM8 but the node reports an error, the fallback UUID-resolution path prevents the workflow from stopping on that item.

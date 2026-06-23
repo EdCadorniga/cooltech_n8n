@@ -1,4 +1,4 @@
-import { workflow, node, trigger, switchCase, newCredential, expr } from '@n8n/workflow-sdk';
+import { workflow, node, trigger, switchCase, splitInBatches, nextBatch, newCredential, expr } from '@n8n/workflow-sdk';
 
 const checkInbox = trigger({
   type: 'n8n-nodes-base.scheduleTrigger',
@@ -61,16 +61,43 @@ const toTs = (value) => {
   return Number.isNaN(ts) ? 0 : ts;
 };
 
+const isSpamOrTestWebsiteEnquiry = (msg) => {
+  const body = String(msg.message_text || '').toLowerCase();
+  const subject = String(msg.subject || '').toLowerCase();
+  const email = String(msg.from_email || msg.fromEmail || '').toLowerCase();
+
+  const spamSignals = [
+    'ai-driven seo',
+    'local and global rankings',
+    'audit report',
+    'design-related issues',
+    'optimize its ranking',
+    'should i send more information',
+    'test for automation',
+  ];
+
+  return subject.includes('new enquiry') && spamSignals.some((signal) => body.includes(signal) || email.includes(signal));
+};
+
 const result = items
   .map((item) => item.json)
   .filter((msg) => msg && !msg.converted_to_job_uuid)
   .sort((a, b) => toTs(b.date) - toTs(a.date))
-  .slice(0, 5)
+  .slice(0, 20)
   .map((msg) => {
+    const normalizedMessageText = String(msg.message_text || '').trim().toLowerCase();
+    const normalizedSubject = String(msg.subject || '')
+      .replace(/[\u2010-\u2015]/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
     let type = null;
-    if (msg.message_text && msg.message_text.startsWith('Online Service Enquiry')) {
+    if (normalizedMessageText.startsWith('online service enquiry')) {
       type = 'online';
-    } else if (msg.subject && msg.subject.includes('New Enquiry - Cooltech Website')) {
+    } else if (normalizedSubject.includes('new enquiry - cooltech website')) {
+      if (isSpamOrTestWebsiteEnquiry(msg)) {
+        return null;
+      }
       type = 'website';
     }
 
@@ -78,8 +105,8 @@ const result = items
       uuid: msg.uuid,
       body: msg.body,
       message_text: msg.message_text,
-      fromName: msg.fromName,
-      fromEmail: msg.fromEmail,
+      fromName: msg.from_name || msg.fromName,
+      fromEmail: msg.from_email || msg.fromEmail,
       subject: msg.subject,
       queueUuid,
       type,
@@ -126,11 +153,117 @@ const routeByType = switchCase({
   },
 });
 
+const processMatchedItems = splitInBatches({
+  version: 3,
+  config: {
+    name: 'Process Matched Items',
+    parameters: {
+      batchSize: 1,
+    },
+    position: [1200, 300],
+  },
+});
+
+const routeResolvedOnlineItem = switchCase({
+  version: 3.4,
+  config: {
+    name: 'Route Resolved Online Item',
+    parameters: {
+      mode: 'rules',
+      rules: {
+        values: [
+          {
+            outputKey: 'Process',
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+              conditions: [{ leftValue: expr('{{ $json.route }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'process' }],
+              combinator: 'and',
+            },
+          },
+          {
+            outputKey: 'Skip',
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+              conditions: [{ leftValue: expr('{{ $json.route }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'skip' }],
+              combinator: 'and',
+            },
+          },
+        ],
+      },
+      options: { fallbackOutput: 'none' },
+    },
+    position: [2640, 100],
+  },
+});
+
+const routeResolvedWebsiteItem = switchCase({
+  version: 3.4,
+  config: {
+    name: 'Route Resolved Website Item',
+    parameters: {
+      mode: 'rules',
+      rules: {
+        values: [
+          {
+            outputKey: 'Process',
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+              conditions: [{ leftValue: expr('{{ $json.route }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'process' }],
+              combinator: 'and',
+            },
+          },
+          {
+            outputKey: 'Skip',
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+              conditions: [{ leftValue: expr('{{ $json.route }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'skip' }],
+              combinator: 'and',
+            },
+          },
+        ],
+      },
+      options: { fallbackOutput: 'none' },
+    },
+    position: [2640, 500],
+  },
+});
+
+const finishOnlineItem = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Finish Online Item',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: 'return [{ json: $json }];',
+    },
+    position: [3120, 100],
+  },
+  output: [{}],
+});
+
+const finishWebsiteItem = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Finish Website Item',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: 'return [{ json: $json }];',
+    },
+    position: [3360, 500],
+  },
+  output: [{}],
+});
+
 const convertOnlineToJob = node({
   type: '@servicem8/n8n-nodes-servicem8.serviceM8',
   version: 1,
   config: {
     name: 'Convert Online to Job',
+    onError: 'continueErrorOutput',
     parameters: {
       resource: 'inbox',
       operation: 'convertToJob',
@@ -138,9 +271,41 @@ const convertOnlineToJob = node({
       fields: {},
     },
     credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
-    position: [1440, 100],
+    position: [1680, 100],
   },
   output: [{ uuid: 'new-job-uuid' }],
+});
+
+const waitBeforeFetchOnline = node({
+  type: 'n8n-nodes-base.wait',
+  version: 1.1,
+  config: {
+    name: 'Wait Before Fetch Online',
+    parameters: {
+      resume: 'timeInterval',
+      amount: 0.5,
+      unit: 'seconds',
+    },
+    position: [1920, 100],
+  },
+  output: [{}],
+});
+
+const fetchConvertedOnlineMessage = node({
+  type: '@servicem8/n8n-nodes-servicem8.serviceM8',
+  version: 1,
+  config: {
+    name: 'Fetch Converted Online Message',
+    onError: 'continueErrorOutput',
+    parameters: {
+      resource: 'inbox',
+      operation: 'get',
+      uuid: expr('{{ $("Filter & Route").item.json.uuid }}'),
+    },
+    credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
+    position: [2160, 100],
+  },
+  output: [{ uuid: 'msg-uuid', converted_to_job_uuid: 'new-job-uuid' }],
 });
 
 const mergeOnlineData = node({
@@ -148,10 +313,13 @@ const mergeOnlineData = node({
   version: 2,
   config: {
     name: 'Merge Online Data',
+    onError: 'continueErrorOutput',
     parameters: {
       mode: 'runOnceForEachItem',
       language: 'javaScript',
       jsCode: `const item = $("Filter & Route").item.json;
+const convertResult = $("Convert Online to Job").item.json || {};
+const jobUuid = $json.converted_to_job_uuid || convertResult.uuid || '';
 const body = item.body || '';
 const lines = body.split('\\n');
 const serviceIndex = lines.findIndex((line) => line.startsWith('Service'));
@@ -159,15 +327,16 @@ const description = serviceIndex >= 0 ? lines.slice(serviceIndex).join('\\n') : 
 
 return [{
   json: {
-    jobUuid: $json.uuid,
+    route: jobUuid ? 'process' : 'skip',
+    jobUuid,
     description,
     queueUuid: item.queueUuid,
   },
 }];`,
     },
-    position: [1680, 100],
+    position: [2400, 100],
   },
-  output: [{ jobUuid: 'new-job-uuid', description: 'Service: Test', queueUuid: 'queue-uuid' }],
+  output: [{ route: 'process', jobUuid: 'new-job-uuid', description: 'Service: Test', queueUuid: 'queue-uuid' }],
 });
 
 const updateOnlineJob = node({
@@ -175,6 +344,7 @@ const updateOnlineJob = node({
   version: 1,
   config: {
     name: 'Update Online Job',
+    onError: 'continueErrorOutput',
     parameters: {
       resource: 'job',
       operation: 'update',
@@ -187,7 +357,7 @@ const updateOnlineJob = node({
       },
     },
     credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
-    position: [1920, 100],
+    position: [2880, 100],
   },
   output: [{}],
 });
@@ -197,6 +367,7 @@ const convertWebsiteToJob = node({
   version: 1,
   config: {
     name: 'Convert Website to Job',
+    onError: 'continueErrorOutput',
     parameters: {
       resource: 'inbox',
       operation: 'convertToJob',
@@ -204,9 +375,41 @@ const convertWebsiteToJob = node({
       fields: {},
     },
     credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
-    position: [1440, 500],
+    position: [1680, 500],
   },
   output: [{ uuid: 'new-job-uuid' }],
+});
+
+const waitBeforeFetchWebsite = node({
+  type: 'n8n-nodes-base.wait',
+  version: 1.1,
+  config: {
+    name: 'Wait Before Fetch Website',
+    parameters: {
+      resume: 'timeInterval',
+      amount: 0.5,
+      unit: 'seconds',
+    },
+    position: [1920, 500],
+  },
+  output: [{}],
+});
+
+const fetchConvertedWebsiteMessage = node({
+  type: '@servicem8/n8n-nodes-servicem8.serviceM8',
+  version: 1,
+  config: {
+    name: 'Fetch Converted Website Message',
+    onError: 'continueErrorOutput',
+    parameters: {
+      resource: 'inbox',
+      operation: 'get',
+      uuid: expr('{{ $("Filter & Route").item.json.uuid }}'),
+    },
+    credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
+    position: [2160, 500],
+  },
+  output: [{ uuid: 'msg-uuid', converted_to_job_uuid: 'new-job-uuid' }],
 });
 
 const mergeWebsiteData = node({
@@ -214,10 +417,13 @@ const mergeWebsiteData = node({
   version: 2,
   config: {
     name: 'Merge Website Data',
+    onError: 'continueErrorOutput',
     parameters: {
       mode: 'runOnceForEachItem',
       language: 'javaScript',
       jsCode: `const item = $("Filter & Route").item.json;
+const convertResult = $("Convert Website to Job").item.json || {};
+const jobUuid = $json.converted_to_job_uuid || convertResult.uuid || '';
 const body = item.body || '';
 const lines = body.split('\\n');
 const emailLine = lines.find((line) => line.startsWith('Email:'));
@@ -234,7 +440,8 @@ const description = enquiryIndex >= 0 ? body.substring(enquiryIndex) : body;
 
 return [{
   json: {
-    jobUuid: $json.uuid,
+    route: jobUuid ? 'process' : 'skip',
+    jobUuid,
     description,
     queueUuid: item.queueUuid,
     contactFirst,
@@ -244,9 +451,9 @@ return [{
   },
 }];`,
     },
-    position: [1680, 500],
+    position: [2400, 500],
   },
-  output: [{ jobUuid: 'new-job-uuid', description: 'enquiry text', queueUuid: 'queue-uuid', contactFirst: 'John', contactLast: 'Citizen', contactEmail: 'john@test.com', contactPhone: '0400000000' }],
+  output: [{ route: 'process', jobUuid: 'new-job-uuid', description: 'enquiry text', queueUuid: 'queue-uuid', contactFirst: 'John', contactLast: 'Citizen', contactEmail: 'john@test.com', contactPhone: '0400000000' }],
 });
 
 const createJobContact = node({
@@ -254,6 +461,7 @@ const createJobContact = node({
   version: 1,
   config: {
     name: 'Create Job Contact',
+    onError: 'continueErrorOutput',
     parameters: {
       resource: 'job',
       operation: 'updateContacts',
@@ -267,7 +475,7 @@ const createJobContact = node({
       },
     },
     credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
-    position: [1920, 500],
+    position: [2880, 500],
   },
   output: [{}],
 });
@@ -277,6 +485,7 @@ const updateWebsiteJob = node({
   version: 1,
   config: {
     name: 'Update Website Job',
+    onError: 'continueErrorOutput',
     parameters: {
       resource: 'job',
       operation: 'update',
@@ -289,7 +498,7 @@ const updateWebsiteJob = node({
       },
     },
     credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
-    position: [2160, 500],
+    position: [3120, 500],
   },
   output: [{}],
 });
@@ -300,7 +509,21 @@ export default workflow('cooltech-inbox-to-job', 'COOLTECH_Inbox_to_Job')
   .to(listInboxMessages)
   .to(filterAndRoute)
   .to(
-    routeByType
-      .onCase(0, convertOnlineToJob.to(mergeOnlineData).to(updateOnlineJob))
-      .onCase(1, convertWebsiteToJob.to(mergeWebsiteData).to(createJobContact).to(updateWebsiteJob)),
+    processMatchedItems.onEachBatch(
+      routeByType
+        .onCase(0, convertOnlineToJob.to(waitBeforeFetchOnline).to(fetchConvertedOnlineMessage).to(mergeOnlineData).to(routeResolvedOnlineItem.onCase(0, updateOnlineJob.to(finishOnlineItem)).onCase(1, finishOnlineItem)))
+        .onCase(1, convertWebsiteToJob.to(waitBeforeFetchWebsite).to(fetchConvertedWebsiteMessage).to(mergeWebsiteData).to(routeResolvedWebsiteItem.onCase(0, createJobContact.to(updateWebsiteJob).to(finishWebsiteItem)).onCase(1, finishWebsiteItem))),
+    ),
   );
+
+convertOnlineToJob.onError(waitBeforeFetchOnline);
+convertWebsiteToJob.onError(waitBeforeFetchWebsite);
+fetchConvertedOnlineMessage.onError(finishOnlineItem);
+mergeOnlineData.onError(finishOnlineItem);
+updateOnlineJob.onError(finishOnlineItem);
+finishOnlineItem.to(nextBatch(processMatchedItems));
+fetchConvertedWebsiteMessage.onError(finishWebsiteItem);
+mergeWebsiteData.onError(finishWebsiteItem);
+createJobContact.onError(finishWebsiteItem);
+updateWebsiteJob.onError(finishWebsiteItem);
+finishWebsiteItem.to(nextBatch(processMatchedItems));

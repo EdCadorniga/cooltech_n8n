@@ -4,14 +4,18 @@
 
 Build an n8n workflow (`COOLTECH_Inbox_to_Job`) on the **katwill** n8n instance that polls the ServiceM8 inbox and auto-converts matching messages into jobs with proper descriptions, contact info, and queue assignment.
 
-## Status (as of last session)
+## Status (as of June 23, 2026)
 
-- ✅ Workflow exists in n8n instance: **ID `oWD4WUSEcWmSZwd6`** (12 nodes, native ServiceM8 community node, credentials assigned)
-- ✅ Workflow is **executable and published** — manual test execution `68155` completed with status `success` on **June 23, 2026**.
+- ✅ Workflow exists in n8n instance: **ID `tlomuOHDE0aCDwwp`** (21 nodes, native ServiceM8 community node, credentials assigned)
+- ✅ Workflow is **executable and published** — manual test executions `68811` and `68813` completed with status `success` on **June 23, 2026**.
+- ✅ A real enquiry was submitted and successfully detected and processed by the live workflow on **June 23, 2026**.
 - ✅ Native-node parameter mismatches were fixed by switching to the correct `uuid`, `fields`, and `contactFields` shapes from the upstream source.
 - ✅ Queue routing now uses a fixed CONFIG value instead of runtime lookup: `X-New Jobs Created Automation` → `423e140e-89ce-4616-a685-245674278d7b`.
-- ℹ️ Latest successful manual run found no matching inbox items after filtering, so no jobs were created in that test.
-- 📦 Archived: `3ei7WaLiYVwDZbaR` (HTTP Request with `httpHeaderAuth` credential), `CQIRmHfW3yYJkJcn` (HTTP Request with `X-Api-Key` header).
+- ✅ Per-item looping is now explicit via `Split In Batches` (`batchSize: 1`) and both branches return control to the loop.
+- ✅ A 500 ms delay now sits between conversion and inbox re-fetch on both branches.
+- ✅ Job UUID resolution now falls back to `converted_to_job_uuid || convertResult.uuid`, and unresolved items are skipped instead of crashing the run.
+- ℹ️ Earlier manual dry runs found no matching inbox items after filtering, but live verification with a real enquiry has now confirmed end-to-end behavior.
+- 📦 Archived: `3ei7WaLiYVwDZbaR` (HTTP Request with `httpHeaderAuth` credential), `CQIRmHfW3yYJkJcn` (HTTP Request with `X-Api-Key` header), `oWD4WUSEcWmSZwd6` (older native-node workflow with loop/config issues).
 - ✅ Project: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
 - ✅ Credential: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account", type `serviceM8CredentialsApi`)
 - ✅ Workflow SDK code file: `COOLTECH_Inbox_to_Job.ts`
@@ -24,9 +28,10 @@ Build an n8n workflow (`COOLTECH_Inbox_to_Job`) on the **katwill** n8n instance 
 ## Processing Steps (per message)
 
 1. Convert inbox message → job (`POST /inboxmessage/{uuid}/convert-to-job.json`)
-2. Set job contact (website enquiries only — `POST /jobcontact.json`)
-3. Update job description & queue UUID (`POST /job/{uuid}.json`)
-4. Queue target: `X-New Jobs Created Automation`
+2. Wait 500 ms, then re-fetch the inbox item to resolve the converted job UUID
+3. Set job contact (website enquiries only — `POST /jobcontact.json`)
+4. Update job description & queue UUID (`POST /job/{uuid}.json`)
+5. Queue target: `X-New Jobs Created Automation`
 
 ---
 
@@ -52,7 +57,7 @@ Build an n8n workflow (`COOLTECH_Inbox_to_Job`) on the **katwill** n8n instance 
 
 ### 5 — `Filter & Route` (Code)
 - Type: `n8n-nodes-base.code` v2, mode `runOnceForAllItems`
-- Reads items, pulls `queueUuid` from `CONFIG`, sorts by date desc, takes 5, drops already-converted, classifies by `message_text` / `subject` pattern.
+- Reads items, pulls `queueUuid` from `CONFIG`, sorts by date desc, takes 20, drops already-converted, classifies by `message_text` / `subject` pattern, and preserves both `from_name`/`from_email` and camelCase fallbacks.
 - Returns `[]` if nothing matches → workflow exits cleanly.
 
 ### 6 — `Route by Type` (Switch)
@@ -63,15 +68,23 @@ Build an n8n workflow (`COOLTECH_Inbox_to_Job`) on the **katwill** n8n instance 
 - `fallbackOutput: 'none'`
 
 ### Branch A — Online
-- **`Convert Online to Job`** — ServiceM8 `inbox.convertToJob` (uuid param)
-- **`Merge Online Data`** — Code (`runOnceForEachItem`). Reads `$("Filter & Route").item.json` for body+queueUuid, parses "Service:" line, returns `{ jobUuid: $json.uuid, description, queueUuid }`.
+- **`Convert Online to Job`** — ServiceM8 `inbox.convertToJob` (uuid param, `continueErrorOutput`)
+- **`Wait Before Fetch Online`** — Wait 500 ms
+- **`Fetch Converted Online Message`** — ServiceM8 `inbox.get`
+- **`Merge Online Data`** — Code (`runOnceForEachItem`). Reads `$("Filter & Route").item.json`, resolves `jobUuid` from `converted_to_job_uuid || convertResult.uuid`, parses "Service:" line, and returns `{ route, jobUuid, description, queueUuid }`.
+- **`Route Resolved Online Item`** — Switch: `process` vs `skip`
 - **`Update Online Job`** — ServiceM8 `job.update` (uuid + additional fields)
+- **`Finish Online Item`** — terminal node that returns control to the loop
 
 ### Branch B — Website
-- **`Convert Website to Job`** — ServiceM8 `inbox.convertToJob`
-- **`Merge Website Data`** — Code. Parses `Name:`, `Email:`, `Phone:`, extracts description after `"You've received a new enquiry"`. Returns `{ jobUuid, description, queueUuid, contactFirst, contactLast, contactEmail, contactPhone }`.
+- **`Convert Website to Job`** — ServiceM8 `inbox.convertToJob` (`continueErrorOutput`)
+- **`Wait Before Fetch Website`** — Wait 500 ms
+- **`Fetch Converted Website Message`** — ServiceM8 `inbox.get`
+- **`Merge Website Data`** — Code. Parses `Name:`, `Email:`, `Phone:`, extracts description after `"You've received a new enquiry"`, resolves `jobUuid` from `converted_to_job_uuid || convertResult.uuid`, and returns `{ route, jobUuid, description, queueUuid, contactFirst, contactLast, contactEmail, contactPhone }`.
+- **`Route Resolved Website Item`** — Switch: `process` vs `skip`
 - **`Create Job Contact`** — ServiceM8 `job.updateContacts`
 - **`Update Website Job`** — ServiceM8 `job.update` (uses `$("Merge Website Data").item.json.*` for fields)
+- **`Finish Website Item`** — terminal node that returns control to the loop
 
 ---
 
@@ -80,12 +93,13 @@ Build an n8n workflow (`COOLTECH_Inbox_to_Job`) on the **katwill** n8n instance 
 ```
 Check Inbox (Schedule, 10 min)
   → CONFIG (Code)
-    → List Inbox Messages (ServiceM8 inbox.getMany, executeOnce)
-      → Filter & Route (Code — sort desc, take 5, classify)
+    → List Inbox Messages (ServiceM8 inbox.getMany, executeOnce, limit 20)
+      → Filter & Route (Code — sort desc, take 20, classify)
             ↓ (empty = success, exit clean)
-            → Route by Type (Switch)
-                ├── Online:  Convert → Merge Online Data → Update Online Job
-                └── Website: Convert → Merge Website Data → Create Job Contact → Update Website Job
+            → Process Matched Items (Split In Batches, batchSize 1)
+                → Route by Type (Switch)
+                    ├── Online:  Convert → Wait → Fetch → Merge → Route Resolved → Update/Skip → Finish → next batch
+                    └── Website: Convert → Wait → Fetch → Merge → Route Resolved → Contact/Update or Skip → Finish → next batch
 ```
 
 ---
@@ -104,12 +118,18 @@ One important design correction came from live testing:
 - `search.objectSearch` is valid syntactically, but the ServiceM8 API returns `400 Unsupported object type: queue` for queue searches.
 - Because of that, queue lookup was removed from the workflow. The queue UUID is now stored in `CONFIG`.
 
+Another important correction came from conversion testing:
+
+- ServiceM8 conversion can succeed even when the convert node reports a failure.
+- Because of that, the workflow now waits 500 ms, re-fetches the inbox item, and resolves the created job UUID via `converted_to_job_uuid || convertResult.uuid`.
+- Unresolved conversions are routed to `skip` so the loop can continue processing later items instead of halting.
+
 ### Key IDs / context (don't lose)
 
 - Project ID: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
 - Credential: `Gii70BGIUVSFSVwi` — "COOLTECH ServiceM8 Credentials account" — type `serviceM8CredentialsApi`
-- Current workflow: `oWD4WUSEcWmSZwd6` (`COOLTECH_Inbox_to_Job`, 12 nodes)
-- Archived (don't reuse): `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`
+- Current workflow: `tlomuOHDE0aCDwwp` (`COOLTECH_Inbox_to_Job`, 21 nodes)
+- Archived (don't reuse): `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`, `oWD4WUSEcWmSZwd6`
 - Schedule: every 10 minutes
 - Queue target: `X-New Jobs Created Automation`
 - Queue UUID: `423e140e-89ce-4616-a685-245674278d7b`
@@ -123,7 +143,10 @@ One important design correction came from live testing:
 - **Code nodes** for filtering/parsing because multi-condition checks and string slicing need a full language.
 - **Switch** for clean multi-way routing with labelled outputs (IF nodes explicitly banned).
 - All expressions reference `$("CONFIG")` for configuration values and upstream nodes by name (`$("Merge Website Data").item.json.*`) for fan-in data.
-- **5 most recent only**: We sort inbox by date descending and take the top 5 before filtering. If none match criteria, the array is empty → downstream nodes are skipped → workflow exits with success. No special error handling needed.
+- **20 most recent only**: We sort inbox by date descending and take the top 20 before filtering. If none match criteria, the array is empty → downstream nodes are skipped → workflow exits with success.
+- **Loop control is explicit**: `Split In Batches` ensures all matched items are processed one at a time.
+- **Conversion is eventually consistent**: after conversion the workflow waits 500 ms, re-fetches the inbox item, and falls back to the convert node response if the inbox record has not updated yet.
+- **Live verification is complete**: the current published workflow has now processed a real enquiry successfully, not just synthetic/manual dry runs.
 
 ---
 
@@ -144,5 +167,7 @@ One important design correction came from live testing:
 - [x] Phase 6: Fix ServiceM8 native-node parameter names
 - [x] Phase 7: Re-test with `execute_workflow executionMode: manual`
 - [x] Phase 8: Publish with `publish_workflow`
+- [x] Phase 8b: Replace broken live workflow with audited workflow (`tlomuOHDE0aCDwwp`) and archive `oWD4WUSEcWmSZwd6`
+- [x] Phase 8c: Verify against a real incoming enquiry
 - [ ] Phase 9: Commit & push `COOLTECH_Inbox_to_Job.ts` to GitHub
 - [x] Phase 10: Update AGENTS.md with final auth approach
