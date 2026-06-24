@@ -5,7 +5,7 @@ const checkInbox = trigger({
   version: 1.3,
   config: {
     name: 'Check Inbox',
-    parameters: { rule: { interval: [{ field: 'minutes', minutesInterval: 10 }] } },
+    parameters: { rule: { interval: [{ field: 'minutes', minutesInterval: 5 }] } },
     position: [240, 300],
   },
   output: [{}],
@@ -192,7 +192,7 @@ const routeResolvedOnlineItem = switchCase({
       },
       options: { fallbackOutput: 'none' },
     },
-    position: [2640, 100],
+    position: [3152, 100],
   },
 });
 
@@ -224,7 +224,7 @@ const routeResolvedWebsiteItem = switchCase({
       },
       options: { fallbackOutput: 'none' },
     },
-    position: [2640, 500],
+    position: [3152, 500],
   },
 });
 
@@ -234,11 +234,11 @@ const finishOnlineItem = node({
   config: {
     name: 'Finish Online Item',
     parameters: {
-      mode: 'runOnceForEachItem',
+      mode: 'runOnceForAllItems',
       language: 'javaScript',
-      jsCode: 'return [{ json: $json }];',
+      jsCode: 'return $input.all().map(item => ({ json: item.json }));',
     },
-    position: [3120, 100],
+    position: [3600, 100],
   },
   output: [{}],
 });
@@ -249,11 +249,11 @@ const finishWebsiteItem = node({
   config: {
     name: 'Finish Website Item',
     parameters: {
-      mode: 'runOnceForEachItem',
+      mode: 'runOnceForAllItems',
       language: 'javaScript',
-      jsCode: 'return [{ json: $json }];',
+      jsCode: 'return $input.all().map(item => ({ json: item.json }));',
     },
-    position: [3360, 500],
+    position: [4048, 500],
   },
   output: [{}],
 });
@@ -308,6 +308,69 @@ const fetchConvertedOnlineMessage = node({
   output: [{ uuid: 'msg-uuid', converted_to_job_uuid: 'new-job-uuid' }],
 });
 
+const uuidResolvedOnline = switchCase({
+  version: 3.4,
+  config: {
+    name: 'UUID Resolved? (Online)',
+    parameters: {
+      mode: 'rules',
+      rules: {
+        values: [
+          {
+            outputKey: 'Resolved',
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+              conditions: [{ leftValue: expr("{{ $json.converted_to_job_uuid ? 'resolved' : 'retry' }}"), operator: { type: 'string', operation: 'equals' }, rightValue: 'resolved' }],
+              combinator: 'and',
+            },
+          },
+          {
+            outputKey: 'Retry',
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+              conditions: [{ leftValue: expr("{{ $json.converted_to_job_uuid ? 'resolved' : 'retry' }}"), operator: { type: 'string', operation: 'equals' }, rightValue: 'retry' }],
+              combinator: 'and',
+            },
+          },
+        ],
+      },
+      options: { fallbackOutput: 'none' },
+    },
+    position: [2256, 100],
+  },
+});
+
+const waitOnlineRetry = node({
+  type: 'n8n-nodes-base.wait',
+  version: 1.1,
+  config: {
+    name: 'Wait Online Retry',
+    parameters: {
+      resume: 'timeInterval',
+      amount: 3,
+      unit: 'seconds',
+    },
+    position: [2480, 196],
+  },
+  output: [{}],
+});
+
+const fetchOnlineRetry = node({
+  type: '@servicem8/n8n-nodes-servicem8.serviceM8',
+  version: 1,
+  config: {
+    name: 'Fetch Online Retry',
+    parameters: {
+      resource: 'inbox',
+      operation: 'get',
+      uuid: expr('{{ $("Filter & Route").item.json.uuid }}'),
+    },
+    credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
+    position: [2704, 196],
+  },
+  output: [{ uuid: 'msg-uuid', converted_to_job_uuid: 'new-job-uuid' }],
+});
+
 const mergeOnlineData = node({
   type: 'n8n-nodes-base.code',
   version: 2,
@@ -315,27 +378,55 @@ const mergeOnlineData = node({
     name: 'Merge Online Data',
     onError: 'continueErrorOutput',
     parameters: {
-      mode: 'runOnceForEachItem',
+      mode: 'runOnceForAllItems',
       language: 'javaScript',
-      jsCode: `const item = $("Filter & Route").item.json;
-const convertResult = $("Convert Online to Job").item.json || {};
-const jobUuid = $json.converted_to_job_uuid || convertResult.uuid || '';
-const body = item.body || item.message_text || '';
-const normalizedBody = String(body).trim();
-const lines = normalizedBody.split('\\n');
-const serviceIndex = lines.findIndex((line) => line.trimStart().startsWith('Service'));
-const description = serviceIndex >= 0 ? lines.slice(serviceIndex).join('\\n').trim() : normalizedBody;
+      jsCode: `const items = $input.all();
+const result = [];
+let convertResult = {};
 
-return [{
-  json: {
-    route: jobUuid ? 'process' : 'skip',
-    jobUuid,
-    description,
-    queueUuid: item.queueUuid,
-  },
-}];`,
+try {
+  convertResult = $('Convert Online to Job').first().json || {};
+} catch (error) {
+  convertResult = {};
+}
+
+for (const item of items) {
+  const { message_text, body, converted_to_job_uuid } = item.json;
+  const text = String(message_text || body || '').trim();
+  const lines = text.split('\\n');
+  const serviceIndex = lines.findIndex((l) => l.trimStart().startsWith('Service'));
+  const rawDesc = serviceIndex >= 0 ? lines.slice(serviceIndex).join('\\n').trim() : text;
+
+  const descLines = rawDesc.split('\\n');
+  const cleaned = [];
+  let prevBlank = false;
+  for (const line of descLines) {
+    const t = line.trim();
+    if (t === '') {
+      if (!prevBlank) { cleaned.push(''); prevBlank = true; }
+    } else {
+      cleaned.push(t); prevBlank = false;
+    }
+  }
+  while (cleaned.length > 0 && cleaned[cleaned.length - 1] === '') cleaned.pop();
+  const description = cleaned.join('\\n');
+
+  const jobUuid = String(converted_to_job_uuid || convertResult.uuid || '');
+  const queueUuid = $('CONFIG').first().json.targetQueueUuid;
+
+  result.push({
+    json: {
+      route: jobUuid ? 'process' : 'skip',
+      jobUuid,
+      description,
+      queueUuid,
     },
-    position: [2400, 100],
+  });
+}
+
+return result;`,
+    },
+    position: [2928, 100],
   },
   output: [{ route: 'process', jobUuid: 'new-job-uuid', description: 'Service: Test', queueUuid: 'queue-uuid' }],
 });
@@ -358,7 +449,7 @@ const updateOnlineJob = node({
       },
     },
     credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
-    position: [2880, 100],
+    position: [3376, 100],
   },
   output: [{}],
 });
@@ -413,6 +504,69 @@ const fetchConvertedWebsiteMessage = node({
   output: [{ uuid: 'msg-uuid', converted_to_job_uuid: 'new-job-uuid' }],
 });
 
+const uuidResolvedWebsite = switchCase({
+  version: 3.4,
+  config: {
+    name: 'UUID Resolved? (Website)',
+    parameters: {
+      mode: 'rules',
+      rules: {
+        values: [
+          {
+            outputKey: 'Resolved',
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+              conditions: [{ leftValue: expr("{{ $json.converted_to_job_uuid ? 'resolved' : 'retry' }}"), operator: { type: 'string', operation: 'equals' }, rightValue: 'resolved' }],
+              combinator: 'and',
+            },
+          },
+          {
+            outputKey: 'Retry',
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+              conditions: [{ leftValue: expr("{{ $json.converted_to_job_uuid ? 'resolved' : 'retry' }}"), operator: { type: 'string', operation: 'equals' }, rightValue: 'retry' }],
+              combinator: 'and',
+            },
+          },
+        ],
+      },
+      options: { fallbackOutput: 'none' },
+    },
+    position: [2256, 500],
+  },
+});
+
+const waitWebsiteRetry = node({
+  type: 'n8n-nodes-base.wait',
+  version: 1.1,
+  config: {
+    name: 'Wait Website Retry',
+    parameters: {
+      resume: 'timeInterval',
+      amount: 3,
+      unit: 'seconds',
+    },
+    position: [2480, 596],
+  },
+  output: [{}],
+});
+
+const fetchWebsiteRetry = node({
+  type: '@servicem8/n8n-nodes-servicem8.serviceM8',
+  version: 1,
+  config: {
+    name: 'Fetch Website Retry',
+    parameters: {
+      resource: 'inbox',
+      operation: 'get',
+      uuid: expr('{{ $("Filter & Route").item.json.uuid }}'),
+    },
+    credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
+    position: [2704, 596],
+  },
+  output: [{ uuid: 'msg-uuid', converted_to_job_uuid: 'new-job-uuid' }],
+});
+
 const mergeWebsiteData = node({
   type: 'n8n-nodes-base.code',
   version: 2,
@@ -420,40 +574,75 @@ const mergeWebsiteData = node({
     name: 'Merge Website Data',
     onError: 'continueErrorOutput',
     parameters: {
-      mode: 'runOnceForEachItem',
+      mode: 'runOnceForAllItems',
       language: 'javaScript',
-      jsCode: `const item = $("Filter & Route").item.json;
-const convertResult = $("Convert Website to Job").item.json || {};
-const jobUuid = $json.converted_to_job_uuid || convertResult.uuid || '';
-const body = item.body || item.message_text || '';
-const normalizedBody = String(body).trim();
-const lines = normalizedBody.split('\\n');
-const emailLine = lines.find((line) => line.startsWith('Email:'));
-const phoneLine = lines.find((line) => line.startsWith('Phone:'));
-const nameLine = lines.find((line) => line.startsWith('Name:'));
-const contactEmail = emailLine ? emailLine.replace('Email:', '').trim() : (item.fromEmail || '');
-const contactPhone = phoneLine ? phoneLine.replace('Phone:', '').trim() : '';
-const fullName = nameLine ? nameLine.replace('Name:', '').trim() : (item.fromName || '');
-const nameParts = fullName.split(/\\s+/).filter(Boolean);
-const contactFirst = nameParts[0] || fullName;
-const contactLast = nameParts.slice(1).join(' ');
-const enquiryIndex = normalizedBody.indexOf("You've received a new enquiry");
-const description = enquiryIndex >= 0 ? normalizedBody.substring(enquiryIndex).trim() : normalizedBody;
+      jsCode: `const items = $input.all();
+const result = [];
+let convertResult = {};
 
-return [{
-  json: {
-    route: jobUuid ? 'process' : 'skip',
-    jobUuid,
-    description,
-    queueUuid: item.queueUuid,
-    contactFirst,
-    contactLast,
-    contactEmail,
-    contactPhone,
-  },
-}];`,
+try {
+  convertResult = $('Convert Website to Job').first().json || {};
+} catch (error) {
+  convertResult = {};
+}
+
+const findValueAfterLabel = (lines, label) => {
+  const idx = lines.findIndex((l) => l.trimStart().startsWith(label));
+  if (idx === -1) return '';
+  for (let i = idx + 1; i < lines.length; i++) {
+    const val = lines[i].trim();
+    if (val) return val;
+  }
+  return '';
+};
+
+for (const item of items) {
+  const inbox = item.json;
+  const jobUuid = String(inbox.converted_to_job_uuid || convertResult.uuid || '');
+
+  const body = String(inbox.body || inbox.message_text || '').trim();
+  const lines = body.split('\\n');
+
+  const fullName = findValueAfterLabel(lines, 'Full Name:') || findValueAfterLabel(lines, 'Name:') || String(inbox.fromName || inbox.from_name || '');
+  const nameParts = fullName.split(/\\s+/).filter(Boolean);
+  const contactFirst = nameParts[0] || '';
+  const contactLast = nameParts.slice(1).join(' ');
+  const contactEmail = findValueAfterLabel(lines, 'Email:') || String(inbox.fromEmail || inbox.from_email || '');
+  const contactPhone = findValueAfterLabel(lines, 'Phone:');
+
+  const enquiryIndex = body.indexOf("You've received a new enquiry");
+  const rawDesc = enquiryIndex >= 0 ? body.substring(enquiryIndex).trim() : body;
+  const descLines = rawDesc.split('\\n');
+  const cleaned = [];
+  let prevBlank = false;
+  for (const line of descLines) {
+    const t = line.trim();
+    if (t === '') {
+      if (!prevBlank) { cleaned.push(''); prevBlank = true; }
+    } else {
+      cleaned.push(t); prevBlank = false;
+    }
+  }
+  while (cleaned.length > 0 && cleaned[cleaned.length - 1] === '') cleaned.pop();
+  const description = cleaned.join('\\n');
+
+  result.push({
+    json: {
+      route: jobUuid ? 'process' : 'skip',
+      jobUuid,
+      description,
+      queueUuid: $('CONFIG').first().json.targetQueueUuid,
+      contactFirst,
+      contactLast,
+      contactEmail,
+      contactPhone,
     },
-    position: [2400, 500],
+  });
+}
+
+return result;`,
+    },
+    position: [2928, 500],
   },
   output: [{ route: 'process', jobUuid: 'new-job-uuid', description: 'enquiry text', queueUuid: 'queue-uuid', contactFirst: 'John', contactLast: 'Citizen', contactEmail: 'john@test.com', contactPhone: '0400000000' }],
 });
@@ -468,7 +657,6 @@ const createJobContact = node({
       resource: 'job',
       operation: 'updateContacts',
       uuid: expr('{{ $json.jobUuid }}'),
-      contactType: 'Job',
       contactFields: {
         first: expr('{{ $json.contactFirst }}'),
         last: expr('{{ $json.contactLast }}'),
@@ -477,7 +665,30 @@ const createJobContact = node({
       },
     },
     credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
-    position: [2880, 500],
+    position: [3376, 500],
+  },
+  output: [{}],
+});
+
+const restoreWebsiteContext = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Restore Website Context',
+    parameters: {
+      mode: 'runOnceForAllItems',
+      language: 'javaScript',
+      jsCode: `const savedContext = $('Merge Website Data').first().json;
+return $input.all().map((item) => ({
+  json: {
+    jobUuid: savedContext.jobUuid,
+    description: savedContext.description,
+    queueUuid: savedContext.queueUuid,
+    contactResult: item.json,
+  },
+}));`,
+    },
+    position: [3600, 500],
   },
   output: [{}],
 });
@@ -491,16 +702,16 @@ const updateWebsiteJob = node({
     parameters: {
       resource: 'job',
       operation: 'update',
-      uuid: expr('{{ $("Merge Website Data").item.json.jobUuid }}'),
+      uuid: expr('{{ $json.jobUuid }}'),
       fields: {
         field: [
-          { field: 'job_description', value: expr('{{ $("Merge Website Data").item.json.description }}') },
-          { field: 'queue_uuid', value: expr('{{ $("Merge Website Data").item.json.queueUuid }}') },
+          { field: 'job_description', value: expr('{{ $json.description }}') },
+          { field: 'queue_uuid', value: expr('{{ $json.queueUuid }}') },
         ],
       },
     },
     credentials: { serviceM8CredentialsApi: newCredential('COOLTECH ServiceM8 Credentials account') },
-    position: [3120, 500],
+    position: [3824, 500],
   },
   output: [{}],
 });
@@ -513,8 +724,22 @@ export default workflow('cooltech-inbox-to-job', 'COOLTECH_Inbox_to_Job')
   .to(
     processMatchedItems.onEachBatch(
       routeByType
-        .onCase(0, convertOnlineToJob.to(waitBeforeFetchOnline).to(fetchConvertedOnlineMessage).to(mergeOnlineData).to(routeResolvedOnlineItem.onCase(0, updateOnlineJob.to(finishOnlineItem)).onCase(1, finishOnlineItem)))
-        .onCase(1, convertWebsiteToJob.to(waitBeforeFetchWebsite).to(fetchConvertedWebsiteMessage).to(mergeWebsiteData).to(routeResolvedWebsiteItem.onCase(0, createJobContact.to(updateWebsiteJob).to(finishWebsiteItem)).onCase(1, finishWebsiteItem))),
+        .onCase(
+          0,
+          convertOnlineToJob
+            .to(waitBeforeFetchOnline)
+            .to(fetchConvertedOnlineMessage)
+            .to(uuidResolvedOnline.onCase(0, mergeOnlineData).onCase(1, waitOnlineRetry.to(fetchOnlineRetry).to(mergeOnlineData)))
+            .to(routeResolvedOnlineItem.onCase(0, updateOnlineJob.to(finishOnlineItem)).onCase(1, finishOnlineItem)),
+        )
+        .onCase(
+          1,
+          convertWebsiteToJob
+            .to(waitBeforeFetchWebsite)
+            .to(fetchConvertedWebsiteMessage)
+            .to(uuidResolvedWebsite.onCase(0, mergeWebsiteData).onCase(1, waitWebsiteRetry.to(fetchWebsiteRetry).to(mergeWebsiteData)))
+            .to(routeResolvedWebsiteItem.onCase(0, createJobContact.to(restoreWebsiteContext).to(updateWebsiteJob).to(finishWebsiteItem)).onCase(1, finishWebsiteItem)),
+        ),
     ),
   );
 

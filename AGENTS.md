@@ -94,7 +94,7 @@ Read these files to get the exact parameter schema before constructing nodes:
 ## Active n8n Resources (current session)
 
 - **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
-- **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 21 nodes, native ServiceM8 nodes, published and active, active version `6c5c26fa`)
+- **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 28 nodes, native ServiceM8 nodes, published and active, active version `ee380c9b`)
 - **Schedule**: Every **5 minutes** (changed from 10 min on 2026-06-24)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
 - **Reference workflow**: `XFf8KEv7i8uOIRX6` ("Wauchope Solar and Electrical SM8", 66 nodes, webhook-driven — studied for multi-retry and context restoration patterns)
@@ -105,15 +105,16 @@ Read these files to get the exact parameter schema before constructing nodes:
 - The live workflow has been verified against a real enquiry and is working.
 - Inbox polling scans the 20 most recent inbox items.
 - Matching items are processed one at a time via `Split In Batches` with `batchSize: 1`.
-- After converting an inbox item to a job, the workflow waits **500 ms**, re-fetches the inbox item, and resolves the job UUID via `converted_to_job_uuid || convertResult.uuid`.
-- If the UUID is not yet resolved after the first fetch, the planned multi-retry loop (Phase 4) will wait **3 s** and re-fetch once more before giving up.
+- After converting an inbox item to a job, the workflow waits **500 ms**, re-fetches the inbox item, and checks `converted_to_job_uuid`.
+- If the UUID is not yet resolved after the first fetch, the workflow waits **3 s** and re-fetches once more before giving up.
+- Both merge nodes now resolve the job UUID via `converted_to_job_uuid || convertResult.uuid`.
 - Online Service Enquiry messages update the created job description and queue.
 - Cooltech Website enquiries create/update the job contact, update the job description, and assign the target queue.
-- If a conversion succeeds in ServiceM8 but the node reports an error, the fallback UUID-resolution path prevents the workflow from stopping on that item.
+- If a conversion succeeds in ServiceM8 but the node reports an error, the retry plus `convertResult.uuid` fallback is intended to prevent the workflow from stopping on that item.
 - The live graph now also includes explicit error-output connections so queue assignment and description update still run after convert-node error outputs when the job was actually created.
 - Both `Merge Online Data` and `Merge Website Data` now apply per-line `.trim()` + blank-line collapsing to descriptions, removing HTML-to-text tab indentation.
 - `Merge Online Data` and `Merge Website Data` were crashing with `"A 'json' property isn't an object"` in `runOnceForEachItem` mode. Fixed by changing both to `runOnceForAllItems` mode using `$input.all()`, which avoids the n8n validation issue in SplitInBatches contexts. Both nodes now use `$('CONFIG').first().json.targetQueueUuid` for the queue UUID.
-- `Merge Website Data` was also hardened: removed all cross-node references (`$("Filter & Route")`, `$("Convert Website to Job")`); only uses `$json` fields from the current node input (`Fetch Converted Website Message`).
+- `Merge Website Data` still avoids the old broad cross-node references; the only cross-node lookup reintroduced is the narrow `Convert Website to Job` UUID fallback via `.first().json.uuid`.
 - **Bugs found and fixed (2026-06-24, execution 70987):**
   1. **Contact parsing broken**: HTML-to-text format places labels and values on separate lines (e.g. `Full Name:\nKatwill Testautomation`). Old regex `/^(Full Name):\s*/i` failed because lines after conversion start with `\t`. Fix: `findValueAfterLabel()` helper in Merge Website Data that finds the label line then scans forward for the next non-empty value line.
   2. **`$json` overwrite by ServiceM8 node**: `Create Job Contact` (a ServiceM8 `job.updateContacts` call) outputs its own result `{"uuid": "..."}`, overwriting `$json.jobUuid`/`description`/`queueUuid` before `Update Website Job` runs. Fix: `Update Website Job` now uses `$("Merge Website Data").first().json.*` instead of `$json.*`.
@@ -121,27 +122,27 @@ Read these files to get the exact parameter schema before constructing nodes:
 - Backfilled existing jobs (Kylie Kylie job, Renee Lancaster job, Katwill Testautomation job) with descriptions, contacts, and queue assignments via direct ServiceM8 API after workflow errors.
 - **Attachment auto-transfer verified**: ServiceM8 automatically transfers attachments from inbox messages to jobs upon conversion. No custom attachment handling needed.
 
-## Planned Changes (next session)
+## Completed Changes (June 24, 2026)
 
-### Phase 4 — Multi-retry Loop (6 new nodes)
-After each path's 500ms fetch, insert a Switch + Wait 3s + Re-fetch:
-- `UUID Resolved? (Online/Website)` — checks `converted_to_job_uuid`
-  - `true` → routes to Merge (existing path)
-  - `false` → `Wait (3s)` → `Fetch (2)` → Merge
-- Both paths get this treatment: 3 new nodes each (Switch + Wait + Fetch)
+### Phase 4 — Multi-retry Loop
+After each path's 500ms fetch, the workflow now inserts a Switch + Wait 3s + Re-fetch:
+- `UUID Resolved? (Online/Website)` checks `converted_to_job_uuid`
+- `true` routes to Merge
+- `false` routes to `Wait (3s)` → `Fetch Retry` → Merge
 
-### Phase 5 — Context Restoration (1 new node + 1 edit)
-Insert `Restore Website Context` Code node between `Create Job Contact` and `Update Website Job`:
+### Phase 5 — Context Restoration
+`Restore Website Context` now sits between `Create Job Contact` and `Update Website Job`:
 - Merges contact result (`$json`) with saved context from `$("Merge Website Data").first().json`
-- Then revert `Update Website Job` to use `$json.jobUuid`, `$json.description`, `$json.queueUuid` (replacing current cross-node refs)
+- `Update Website Job` now uses `$json.jobUuid`, `$json.description`, `$json.queueUuid` again
 
 ### Implementation Process
 1. Read current workflow JSON from n8n via `get_workflow_details`
 2. Plan node positions and connections
 3. Apply operations with `update_workflow` (atomic batch ops)
 4. Re-publish with `publish_workflow`
-5. Test with a real or simulated enquiry
-6. Commit changes
+5. Verify post-publish that all `continueErrorOutput` branches still connect to the intended fallback nodes in the live graph
+6. Test with a real or simulated enquiry
+7. Commit changes
 
 ## Key Code Patterns
 
