@@ -94,7 +94,8 @@ Read these files to get the exact parameter schema before constructing nodes:
 ## Active n8n Resources (current session)
 
 - **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
-- **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 21 nodes, native ServiceM8 nodes, published and active, active version `d74bf22d`)
+- **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 21 nodes, native ServiceM8 nodes, published and active, active version `df60efc9`)
+- **Schedule**: Every **5 minutes** (changed from 10 min on 2026-06-24)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
 - **Archived workflows** (don't reuse): `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`, `oWD4WUSEcWmSZwd6`
 
@@ -109,4 +110,7 @@ Read these files to get the exact parameter schema before constructing nodes:
 - If a conversion succeeds in ServiceM8 but the node reports an error, the fallback UUID-resolution path prevents the workflow from stopping on that item.
 - The live graph now also includes explicit error-output connections so queue assignment and description update still run after convert-node error outputs when the job was actually created.
 - Both `Merge Online Data` and `Merge Website Data` now apply per-line `.trim()` + blank-line collapsing to descriptions, removing HTML-to-text tab indentation.
-- `Merge Online Data` was hardened: removed `$("Convert Online to Job").item.json` and `$("Filter & Route").item.json` cross-node references (unreliable in SplitInBatches "done" context); uses only `$json.message_text` and `$json.converted_to_job_uuid` from `Fetch Converted Online Message` output, plus `$("CONFIG").item.json.targetQueueUuid` for the queue UUID.
+- `Merge Online Data` and `Merge Website Data` were crashing with `"A 'json' property isn't an object"` in `runOnceForEachItem` mode. Fixed by changing both to `runOnceForAllItems` mode using `$input.all()`, which avoids the n8n validation issue in SplitInBatches contexts. Both nodes now use `$('CONFIG').first().json.targetQueueUuid` for the queue UUID.
+- `Merge Website Data` was also hardened: removed all cross-node references (`$("Filter & Route")`, `$("Convert Website to Job")`); only uses `$json` fields from the current node input (`Fetch Converted Website Message`).
+- `Update Website Job` was fixed: changed from `$("Merge Website Data")` cross-node refs to `$json.jobUuid`, `$json.description`, `$json.queueUuid`.
+- Backfilled existing jobs (Kylie Kylie job, Renee Lancaster job) with descriptions, contacts, and queue assignments via direct ServiceM8 API after the merge crash was identified.
