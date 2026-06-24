@@ -51,7 +51,22 @@ The previous attempts (HTTP Request + `httpHeaderAuth` credential, then HTTP Req
 - n8n auto-assigns the credential to all matching nodes on workflow creation
 - Do **not** try to resolve queue UUIDs at runtime with `search.objectSearch`: the native node exposes `objectSearch`, but the ServiceM8 API rejects `objectType: 'queue'`. Store the queue UUID in `CONFIG` instead.
 
-The X-Api-Key value `smk-f6d33c-b98e46653ac5783f-4ccc6dd94e040eb2` lives in the credential record, not in the workflow. CONFIG node only holds non-secret config (`targetQueueName`).
+The X-Api-Key value lives in `.env` as `COOLTECH_API_KEY`. Use this for **direct API calls** (backfills, lookups, quick edits) instead of creating n8n workflows. CONFIG node only holds non-secret config (`targetQueueName`).
+
+### Direct API (for backfills, lookups, quick edits)
+
+Prefer direct HTTP calls to the ServiceM8 API over creating temporary n8n workflows:
+
+| Operation | Method | Endpoint |
+|-----------|--------|----------|
+| GET job | GET | `/api_1.0/job/{uuid}.json` |
+| UPDATE job | POST | `/api_1.0/job/{uuid}.json` (body: flat JSON of fields) |
+| GET job contacts | GET | `/api_1.0/jobcontact.json?$filter=job_uuid eq '{uuid}'` |
+| UPDATE job contact | POST | `/api_1.0/jobcontact/{contactUuid}.json` (body: flat JSON of fields) |
+
+Header: `X-Api-Key: {COOLTECH_API_KEY}`, Content-Type: `application/json`.
+
+Note: `jobcontact` records are separate from `client` records. Job contacts use `type: "JOB"`.
 
 ### Message Match Criteria
 
@@ -79,7 +94,7 @@ Read these files to get the exact parameter schema before constructing nodes:
 ## Active n8n Resources (current session)
 
 - **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
-- **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 21 nodes, native ServiceM8 nodes, published and active)
+- **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 21 nodes, native ServiceM8 nodes, published and active, active version `d74bf22d`)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
 - **Archived workflows** (don't reuse): `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`, `oWD4WUSEcWmSZwd6`
 
@@ -93,3 +108,5 @@ Read these files to get the exact parameter schema before constructing nodes:
 - Cooltech Website enquiries create/update the job contact, update the job description, and assign the target queue.
 - If a conversion succeeds in ServiceM8 but the node reports an error, the fallback UUID-resolution path prevents the workflow from stopping on that item.
 - The live graph now also includes explicit error-output connections so queue assignment and description update still run after convert-node error outputs when the job was actually created.
+- Both `Merge Online Data` and `Merge Website Data` now apply per-line `.trim()` + blank-line collapsing to descriptions, removing HTML-to-text tab indentation.
+- `Merge Online Data` was hardened: removed `$("Convert Online to Job").item.json` and `$("Filter & Route").item.json` cross-node references (unreliable in SplitInBatches "done" context); uses only `$json.message_text` and `$json.converted_to_job_uuid` from `Fetch Converted Online Message` output, plus `$("CONFIG").item.json.targetQueueUuid` for the queue UUID.
