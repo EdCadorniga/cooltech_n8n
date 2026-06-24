@@ -94,7 +94,7 @@ Read these files to get the exact parameter schema before constructing nodes:
 ## Active n8n Resources (current session)
 
 - **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
-- **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 21 nodes, native ServiceM8 nodes, published and active, active version `df60efc9`)
+- **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 21 nodes, native ServiceM8 nodes, published and active, active version `6c5c26fa`)
 - **Schedule**: Every **5 minutes** (changed from 10 min on 2026-06-24)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
 - **Archived workflows** (don't reuse): `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`, `oWD4WUSEcWmSZwd6`
@@ -113,4 +113,8 @@ Read these files to get the exact parameter schema before constructing nodes:
 - `Merge Online Data` and `Merge Website Data` were crashing with `"A 'json' property isn't an object"` in `runOnceForEachItem` mode. Fixed by changing both to `runOnceForAllItems` mode using `$input.all()`, which avoids the n8n validation issue in SplitInBatches contexts. Both nodes now use `$('CONFIG').first().json.targetQueueUuid` for the queue UUID.
 - `Merge Website Data` was also hardened: removed all cross-node references (`$("Filter & Route")`, `$("Convert Website to Job")`); only uses `$json` fields from the current node input (`Fetch Converted Website Message`).
 - `Update Website Job` was fixed: changed from `$("Merge Website Data")` cross-node refs to `$json.jobUuid`, `$json.description`, `$json.queueUuid`.
-- Backfilled existing jobs (Kylie Kylie job, Renee Lancaster job) with descriptions, contacts, and queue assignments via direct ServiceM8 API after the merge crash was identified.
+- Later (2026-06-24): A test Cooltech Website enquiry exposed two additional bugs in the Website path:
+  - **Contact parsing**: The HTML-to-text format places labels and values on separate lines (e.g. `Full Name:\nKatwill Testautomation`). The old regex `/^(Full Name):\s*/i` failed because lines start with `\t`. Fix: `findValueAfterLabel()` helper that finds the label line then scans forward for the next non-empty value line.
+  - **`$json` overwrite by ServiceM8 node**: `Create Job Contact` (a ServiceM8 `job.updateContacts` call) outputs its own result `{"uuid": "..."}`, overwriting `$json.jobUuid`/`description`/`queueUuid` before `Update Website Job` runs. Fix: `Update Website Job` now uses `$("Merge Website Data").first().json.*` instead of `$json.*`.
+  - **Finish node crash on error output**: `Finish Website Item` (Code node, `runOnceForEachItem`) crashed with the same `"A 'json' property isn't an object"` error when receiving the error output from `Update Website Job`. Fix: switched both `Finish Website Item` and `Finish Online Item` to `runOnceForAllItems` with `$input.all().map(...)`.
+- Backfilled existing jobs (Kylie Kylie job, Renee Lancaster job, Katwill Testautomation job) with descriptions, contacts, and queue assignments via direct ServiceM8 API after workflow errors.
