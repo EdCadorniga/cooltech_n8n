@@ -1,178 +1,133 @@
-# Workflow Plan: ServiceM8 Inbox → Job Automation
+# Workflow Plan: COOLTECH_Inbox_to_Job
 
 ## Goal
 
-Build an n8n workflow (`COOLTECH_Inbox_to_Job`) on the **katwill** n8n instance that polls the ServiceM8 inbox and auto-converts matching messages into jobs with proper descriptions, contact info, and queue assignment.
+Poll ServiceM8 inbox, convert matching messages to jobs with proper descriptions, contact info, and queue assignment. Runs on the **katwill** n8n instance.
 
-## Status (as of June 23, 2026)
+## Status (as of June 24, 2026)
 
-- ✅ Workflow exists in n8n instance: **ID `tlomuOHDE0aCDwwp`** (21 nodes, native ServiceM8 community node, credentials assigned)
-- ✅ Workflow is **executable and published** — manual test executions `68811` and `68813` completed with status `success` on **June 23, 2026**.
-- ✅ A real enquiry was submitted and successfully detected and processed by the live workflow on **June 23, 2026**.
-- ✅ Native-node parameter mismatches were fixed by switching to the correct `uuid`, `fields`, and `contactFields` shapes from the upstream source.
-- ✅ Queue routing now uses a fixed CONFIG value instead of runtime lookup: `X-New Jobs Created Automation` → `423e140e-89ce-4616-a685-245674278d7b`.
-- ✅ Per-item looping is now explicit via `Split In Batches` (`batchSize: 1`) and both branches return control to the loop.
-- ✅ A 500 ms delay now sits between conversion and inbox re-fetch on both branches.
-- ✅ Job UUID resolution now falls back to `converted_to_job_uuid || convertResult.uuid`, and unresolved items are skipped instead of crashing the run.
-- ✅ The live graph now has explicit error-output connections for the convert/fetch/update nodes, so queue and description updates continue even when ServiceM8 conversion succeeds but returns an error output.
-- ✅ Job `#2600953SM` was backfilled directly via the ServiceM8 API after confirming the workflow had created the job but skipped the final update step.
-- ℹ️ Earlier manual dry runs found no matching inbox items after filtering, but live verification with a real enquiry has now confirmed end-to-end behavior.
-- 📦 Archived: `3ei7WaLiYVwDZbaR` (HTTP Request with `httpHeaderAuth` credential), `CQIRmHfW3yYJkJcn` (HTTP Request with `X-Api-Key` header), `oWD4WUSEcWmSZwd6` (older native-node workflow with loop/config issues).
-- ✅ Project: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
-- ✅ Credential: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account", type `serviceM8CredentialsApi`)
-- ✅ Workflow SDK code file: `COOLTECH_Inbox_to_Job.ts`
+- ✅ Workflow exists: **ID `tlomuOHDE0aCDwwp`** (21 nodes, native ServiceM8 nodes, published, active)
+- ✅ Active version: **`6c5c26fa`**
+- ✅ Verified end-to-end against real enquiries (both Online Service Enquiry and Cooltech Website)
+- ✅ Schedule: every **5 minutes** (changed from 10 min on 2026-06-24)
+- ✅ Native-node parameter mismatches fixed: uses correct `uuid`, `fields`, `contactFields` shapes
+- ✅ Queue routing via CONFIG node: `423e140e-89ce-4616-a685-245674278d7b`
+- ✅ Per-item looping via `Split In Batches` (`batchSize: 1`)
+- ✅ 500 ms delay between conversion and inbox re-fetch
+- ✅ Fallback UUID resolution: `converted_to_job_uuid || convertResult.uuid`
+- ✅ Error-output connections on all convert/update nodes
+- ✅ With `.trim()` + blank-line collapsing on descriptions
+- ✅ `runOnceForAllItems` mode on both Merge nodes (fixed `"A 'json' property isn't an object"` crash)
+- ✅ Contact parsing uses `findValueAfterLabel()` to handle HTML-to-text label/value on separate lines
+- ✅ `$json` overwrite fix: `Update Website Job` uses `$("Merge Website Data").first().json.*` instead of `$json.*`
+- ✅ Both Finish nodes use `runOnceForAllItems` to avoid crash on error output
+- ✅ Backfilled affected jobs via direct API: Kylie Kylie, Renee Lancaster, Katwill Testautomation
+- ✅ Attachments auto-transfer to job on conversion (verified; no custom attachment handling needed)
 
 ## Match Criteria
 
-1. **Online Service Enquiry** — `message_text` starts with `Online Service Enquiry`. Copy body from the `Service` line down into the job description.
-2. **New Enquiry - Cooltech Website** — `subject` contains `New Enquiry - Cooltech Website`. Parse body for contact name/email/phone, set as job contact, copy everything under `You've received a new enquiry` into the job description.
+1. **Online Service Enquiry** — `message_text` starts with `Online Service Enquiry`. Copy body from `Service` line down.
+2. **New Enquiry - Cooltech Website** — `subject` contains `New Enquiry - Cooltech Website`. Parse for contact name/email/phone; copy everything under `You've received a new enquiry`.
 
 ## Processing Steps (per message)
 
-1. Convert inbox message → job (`POST /inboxmessage/{uuid}/convert-to-job.json`)
-2. Wait 500 ms, then re-fetch the inbox item to resolve the converted job UUID
-3. Set job contact (website enquiries only — `POST /jobcontact.json`)
-4. Update job description & queue UUID (`POST /job/{uuid}.json`)
-5. Queue target: `X-New Jobs Created Automation`
+1. Convert inbox → job (`inbox.convertToJob`)
+2. Wait 500 ms, re-fetch, resolve job UUID
+3. If no UUID on first fetch → Wait 3s → Re-fetch (retry, Phase 4)
+4. Set job contact (website only — `job.updateContacts`)
+5. Restore website context after contact creation (Code node, Phase 5)
+6. Update job description & queue UUID (`job.update`)
+7. Terminal — return control to loop
 
----
+## Planned Nodes (current + upcoming)
 
-## Current Node Configuration (using native ServiceM8 community node)
+### Phase 1-3 (Existing — 21 nodes)
+1. `Check Inbox` — Schedule Trigger, every 5 min
+2. `CONFIG` — Code, `runOnceForAllItems`: `{ targetQueueUuid: '423e140e-...' }`
+3. `List Inbox Messages` — ServiceM8 `inbox.getMany`, limit 20
+4. `Filter & Route` — Code, sort desc, take 20, classify
+5. `Process Matched Items` — Split In Batches, `batchSize: 1`
+6. `Route by Type` — Switch, rules: `online` / `website`
+7. `Convert Online to Job` — ServiceM8 `inbox.convertToJob`
+8. `Wait Before Fetch Online` — Wait 500 ms
+9. `Fetch Converted Online Message` — ServiceM8 `inbox.get`
+10. `UUID Resolved? (Online)` — Switch (retry gate, Phase 4)
+11. `Wait Online Retry` — Wait 3s (Phase 4)
+12. `Fetch Online Retry` — ServiceM8 `inbox.get` (Phase 4)
+13. `Merge Online Data` — Code, `runOnceForAllItems`
+14. `Route Resolved Online Item` — Switch: `process` / `skip`
+15. `Update Online Job` — ServiceM8 `job.update`
+16. `Finish Online Item` — Code, `runOnceForAllItems`
+17. `Convert Website to Job` — ServiceM8 `inbox.convertToJob`
+18. `Wait Before Fetch Website` — Wait 500 ms
+19. `Fetch Converted Website Message` — ServiceM8 `inbox.get`
+20. `UUID Resolved? (Website)` — Switch (retry gate, Phase 4)
+21. `Wait Website Retry` — Wait 3s (Phase 4)
+22. `Fetch Website Retry` — ServiceM8 `inbox.get` (Phase 4)
+23. `Merge Website Data` — Code, `runOnceForAllItems`
+24. `Route Resolved Website Item` — Switch: `process` / `skip`
+25. `Create Job Contact` — ServiceM8 `job.updateContacts`
+26. `Restore Website Context` — Code (Phase 5)
+27. `Update Website Job` — ServiceM8 `job.update`
+28. `Finish Website Item` — Code, `runOnceForAllItems`
 
-### 1 — `Check Inbox` (Schedule Trigger)
-- Type: `n8n-nodes-base.scheduleTrigger` v1.3
-- Every 10 minutes.
+**Total planned: 28 nodes** (21 existing + 7 new)
 
-### 2 — `CONFIG` (Code)
-- Type: `n8n-nodes-base.code` v2, mode `runOnceForAllItems`
-- Output: `{ targetQueueName: 'X-New Jobs Created Automation', targetQueueUuid: '423e140e-89ce-4616-a685-245674278d7b' }`
-- (CONFIG no longer holds the API key — auth is delegated to the credential.)
-
-### 3 — `Find Queue UUID` (ServiceM8 `search.objectSearch`)
-- Removed. `search.objectSearch` cannot be used for queue lookup because ServiceM8 rejects `objectType: 'queue'`.
-- Replacement: `CONFIG` now outputs `targetQueueUuid: '423e140e-89ce-4616-a685-245674278d7b'`.
-
-### 4 — `List Inbox Messages` (ServiceM8 `inbox.getMany`)
-- Type: `@servicem8/n8n-nodes-servicem8.serviceM8` v1
-- Parameters: `resource: 'inbox'`, `operation: 'getMany'`, plus optional filter/search/limit
-- `executeOnce: true`
-
-### 5 — `Filter & Route` (Code)
-- Type: `n8n-nodes-base.code` v2, mode `runOnceForAllItems`
-- Reads items, pulls `queueUuid` from `CONFIG`, sorts by date desc, takes 20, drops already-converted, classifies by `message_text` / `subject` pattern, and preserves both `from_name`/`from_email` and camelCase fallbacks.
-- Returns `[]` if nothing matches → workflow exits cleanly.
-
-### 6 — `Route by Type` (Switch)
-- Type: `n8n-nodes-base.switch` v3.4, mode `rules`
-- Rules:
-  - `Online` if `$json.type === "online"`
-  - `Website` if `$json.type === "website"`
-- `fallbackOutput: 'none'`
-
-### Branch A — Online
-- **`Convert Online to Job`** — ServiceM8 `inbox.convertToJob` (uuid param, `continueErrorOutput`)
-- **`Wait Before Fetch Online`** — Wait 500 ms
-- **`Fetch Converted Online Message`** — ServiceM8 `inbox.get`
-- **`Merge Online Data`** — Code (`runOnceForEachItem`). Reads `$("Filter & Route").item.json`, resolves `jobUuid` from `converted_to_job_uuid || convertResult.uuid`, parses "Service:" line, and returns `{ route, jobUuid, description, queueUuid }`.
-- **`Route Resolved Online Item`** — Switch: `process` vs `skip`
-- **`Update Online Job`** — ServiceM8 `job.update` (uuid + additional fields)
-- **`Finish Online Item`** — terminal node that returns control to the loop
-
-### Branch B — Website
-- **`Convert Website to Job`** — ServiceM8 `inbox.convertToJob` (`continueErrorOutput`)
-- **`Wait Before Fetch Website`** — Wait 500 ms
-- **`Fetch Converted Website Message`** — ServiceM8 `inbox.get`
-- **`Merge Website Data`** — Code. Parses `Name:`, `Email:`, `Phone:`, extracts description after `"You've received a new enquiry"`, resolves `jobUuid` from `converted_to_job_uuid || convertResult.uuid`, and returns `{ route, jobUuid, description, queueUuid, contactFirst, contactLast, contactEmail, contactPhone }`.
-- **`Route Resolved Website Item`** — Switch: `process` vs `skip`
-- **`Create Job Contact`** — ServiceM8 `job.updateContacts`
-- **`Update Website Job`** — ServiceM8 `job.update` (uses `$("Merge Website Data").item.json.*` for fields)
-- **`Finish Website Item`** — terminal node that returns control to the loop
-
----
-
-## Connection Flow
+### Connection Flow
 
 ```
-Check Inbox (Schedule, 10 min)
+Check Inbox (Schedule, 5 min)
   → CONFIG (Code)
-    → List Inbox Messages (ServiceM8 inbox.getMany, executeOnce, limit 20)
-      → Filter & Route (Code — sort desc, take 20, classify)
-            ↓ (empty = success, exit clean)
+    → List Inbox Messages (ServiceM8 inbox.getMany, limit 20)
+      → Filter & Route (Code — sort, classify)
+            ↓ (empty → exit clean)
             → Process Matched Items (Split In Batches, batchSize 1)
                 → Route by Type (Switch)
-                    ├── Online:  Convert → Wait → Fetch → Merge → Route Resolved → Update/Skip → Finish → next batch
-                    └── Website: Convert → Wait → Fetch → Merge → Route Resolved → Contact/Update or Skip → Finish → next batch
+                    ├── Online: Convert → Wait → Fetch → UUID Resolved?
+                    │     ├── true → Merge → Route Resolved → Update → Finish
+                    │     └── false → Wait 3s → Fetch Retry → Merge → ...
+                    └── Website: Convert → Wait → Fetch → UUID Resolved?
+                          ├── true → Merge → Route Resolved → Contact → Restore Context → Update → Finish
+                          └── false → Wait 3s → Fetch Retry → Merge → ...
 ```
 
----
+## Phase 4 — Multi-retry Loop (planned, 6 new nodes)
 
-## Phase 2 — Resolved Issues
+After the 500ms fetch, insert a Switch checking `converted_to_job_uuid`:
+- **Has UUID** → Merge (existing path, unchanged)
+- **No UUID** → Wait 3s → Re-fetch → Merge
 
-The ServiceM8 community node parameter mismatches are fixed. The published workflow now uses:
+This gives ServiceM8 one more second to finalise the conversion before giving up.
 
-- `inbox.getMany` with `inboxFilter`, `inboxSearch`, `limit`
-- `inbox.convertToJob` with `uuid`
-- `job.update` with `uuid` + `fields.field[]`
-- `job.updateContacts` with `uuid`, `contactType`, `contactFields`
+**Online path**: `UUID Resolved? (Online)` → `Wait Online Retry` → `Fetch Online Retry`
+**Website path**: `UUID Resolved? (Website)` → `Wait Website Retry` → `Fetch Website Retry`
 
-One important design correction came from live testing:
+## Phase 5 — Context Restoration (planned, 1 new node + 1 edit)
 
-- `search.objectSearch` is valid syntactically, but the ServiceM8 API returns `400 Unsupported object type: queue` for queue searches.
-- Because of that, queue lookup was removed from the workflow. The queue UUID is now stored in `CONFIG`.
+Insert `Restore Website Context` Code node between `Create Job Contact` and `Update Website Job`. Merges the contact creation result (`$json`) with the saved context from `$("Merge Website Data").first().json`.
 
-Another important correction came from conversion testing:
+After adding this node, revert `Update Website Job` to use `$json.jobUuid`, `$json.description`, `$json.queueUuid` instead of cross-node references.
 
-- ServiceM8 conversion can succeed even when the convert node reports a failure.
-- Because of that, the workflow now waits 500 ms, re-fetches the inbox item, and resolves the created job UUID via `converted_to_job_uuid || convertResult.uuid`.
-- Unresolved conversions are routed to `skip` so the loop can continue processing later items instead of halting.
-- The published graph must also carry explicit error-output connections; `continueErrorOutput` by itself was not enough in the live workflow version that failed to assign queue and description on Job `#2600953SM`.
+This prevents the ServiceM8 `job.updateContacts` output `{"uuid": "..."}` from overwriting the upstream context before the job update runs.
 
-### Key IDs / context (don't lose)
+## Key IDs (preserve across sessions)
 
-- Project ID: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
-- Credential: `Gii70BGIUVSFSVwi` — "COOLTECH ServiceM8 Credentials account" — type `serviceM8CredentialsApi`
-- Current workflow: `tlomuOHDE0aCDwwp` (`COOLTECH_Inbox_to_Job`, 21 nodes)
-- Archived (don't reuse): `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`, `oWD4WUSEcWmSZwd6`
-- Schedule: every 10 minutes
-- Queue target: `X-New Jobs Created Automation`
-- Queue UUID: `423e140e-89ce-4616-a685-245674278d7b`
-- API key (for documentation / fallback): `smk-f6d33c-b98e46653ac5783f-4ccc6dd94e040eb2`
+| Resource | ID |
+|---|---|
+| Project | `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>") |
+| Workflow | `tlomuOHDE0aCDwwp` (`COOLTECH_Inbox_to_Job`, active v6c5c26fa) |
+| Credential | `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account", `serviceM8CredentialsApi`) |
+| Queue UUID | `423e140e-89ce-4616-a685-245674278d7b` |
+| Archived (don't reuse) | `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`, `oWD4WUSEcWmSZwd6` |
+| Reference workflow | `XFf8KEv7i8uOIRX6` ("Wauchope Solar and Electrical SM8", 66 nodes) |
 
 ## Design Decisions
 
-- **CONFIG node** centralises the queue name and queue UUID — no magic strings, no secrets.
-- **Native ServiceM8 community node** over HTTP Request — type defs can't be loaded by the `get_node_types` tool (`@` prefix), but the credential auto-assigns, so manual parameter construction from the source repo is the workaround.
-- **executeOnce: true** on inbox fetcher prevents N×M item multiplication.
-- **Code nodes** for filtering/parsing because multi-condition checks and string slicing need a full language.
-- **Switch** for clean multi-way routing with labelled outputs (IF nodes explicitly banned).
-- All expressions reference `$("CONFIG")` for configuration values and upstream nodes by name (`$("Merge Website Data").item.json.*`) for fan-in data.
-- **20 most recent only**: We sort inbox by date descending and take the top 20 before filtering. If none match criteria, the array is empty → downstream nodes are skipped → workflow exits with success.
-- **Loop control is explicit**: `Split In Batches` ensures all matched items are processed one at a time.
-- **Conversion is eventually consistent**: after conversion the workflow waits 500 ms, re-fetches the inbox item, and falls back to the convert node response if the inbox record has not updated yet.
-- **Current text-source rule**: description parsing currently uses `body || message_text` because ServiceM8 inbox payloads are not uniform across all message types.
-- **Future hardening option**: normalize the inbound text once in `Filter & Route` into a canonical field such as `sourceText`, and make all downstream nodes consume only that field. This has been documented but not applied yet.
-- **Live verification is complete**: the current published workflow has now processed a real enquiry successfully, not just synthetic/manual dry runs.
-
----
-
-## GitHub Setup
-
-- Remote: `https://github.com/EdCadorniga/cooltech_n8n`
-- `.gitignore` excludes `.env` and `node_modules/`.
-- Workflow SDK code and documentation are committed for version tracking.
-- **Note**: changes since last commit — `COOLTECH_Inbox_to_Job.ts` was completely rewritten (HTTP Request → native ServiceM8 node). Not yet committed/pushed.
-
-## Remaining Steps (new session)
-
-- [x] Phase 1: Research & Planning
-- [x] Phase 2: Write the workflow SDK file (`COOLTECH_Inbox_to_Job.ts`)
-- [x] Phase 3: Validate (`validate_workflow` — clean)
-- [x] Phase 4: Resolve project ID
-- [x] Phase 5: Create workflow (`oWD4WUSEcWmSZwd6`)
-- [x] Phase 6: Fix ServiceM8 native-node parameter names
-- [x] Phase 7: Re-test with `execute_workflow executionMode: manual`
-- [x] Phase 8: Publish with `publish_workflow`
-- [x] Phase 8b: Replace broken live workflow with audited workflow (`tlomuOHDE0aCDwwp`) and archive `oWD4WUSEcWmSZwd6`
-- [x] Phase 8c: Verify against a real incoming enquiry
-- [ ] Phase 9: Commit & push `COOLTECH_Inbox_to_Job.ts` to GitHub
-- [x] Phase 10: Update AGENTS.md with final auth approach
+- **CONFIG node** centralises queue UUID — no magic strings.
+- **Native ServiceM8 node** over HTTP Request — credential auto-assigns.
+- **Code nodes** for parsing (multi-condition checks, string slicing).
+- **Switch** for clean multi-way routing (IF nodes banned).
+- **`runOnceForAllItems`** on merge/finish nodes — avoids n8n validation bug with `"A 'json' property isn't an object"` inside SplitInBatches context.
+- **Cross-node refs** (`$("NodeName").first().json.*`) for fan-in data; avoids `$json` overwrite by ServiceM8 node outputs.
+- **Multi-retry** (3s) after initial 500ms wait — mimics Wauchope reference's escalating retry pattern.
+- **No attachment handling needed** — ServiceM8 auto-transfers attachments on conversion.

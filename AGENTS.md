@@ -76,9 +76,9 @@ Note: `jobcontact` records are separate from `client` records. Job contacts use 
 ### Native ServiceM8 Node Parameter Reference (verified from source)
 
 Read these files to get the exact parameter schema before constructing nodes:
-- `nodes/ServiceM8/Inbox/InboxDescription.ts` — for `inbox.getMany` (params: `inboxFilter`, `inboxSearch`, `limit`) and `inbox.convertToJob` (params: `uuid`, optional `jobTemplateUUID`, `fields` collection).
-- `nodes/ServiceM8/Job/JobDescription.ts` — for `job.*` operations. Most operations use `uuid` (required) plus a `fields` collection. The `update` and `updateContacts` operations may be defined in `Job/JobObjects.ts`.
-- `nodes/ServiceM8/Search/SearchDescription.ts` — for `search.objectSearch` and `search.globalSearch`.
+- `nodes/ServiceM8/Inbox/InboxDescription.ts` — for `inbox.getMany` (params: `inboxFilter`, `inboxSearch`, `limit`) and `inbox.convertToJob` (params: `uuid`, optional `jobTemplateUUID`, `fields` collection with optional `note`).
+- `nodes/ServiceM8/Job/JobDescription.ts` — for `job.*` operations. Most operations use `uuid` (required) plus a `fields` collection.
+- `nodes/ServiceM8/Attachment/AttachmentDescription.ts` — for `attachment.*` operations. `getMany` supports `relatedObjectType` (`job`/`company`) and `relatedObjectUuid`. `create` supports `fileData` (binary) and related object fields.
 - `nodes/ServiceM8/Inbox/InboxObjects.ts` and `Job/JobObjects.ts` — for `fields` collection items.
 
 **Known mistakes to avoid** (from prior session):
@@ -97,6 +97,7 @@ Read these files to get the exact parameter schema before constructing nodes:
 - **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 21 nodes, native ServiceM8 nodes, published and active, active version `6c5c26fa`)
 - **Schedule**: Every **5 minutes** (changed from 10 min on 2026-06-24)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
+- **Reference workflow**: `XFf8KEv7i8uOIRX6` ("Wauchope Solar and Electrical SM8", 66 nodes, webhook-driven — studied for multi-retry and context restoration patterns)
 - **Archived workflows** (don't reuse): `3ei7WaLiYVwDZbaR`, `CQIRmHfW3yYJkJcn`, `oWD4WUSEcWmSZwd6`
 
 ## Current Working Behavior
@@ -105,6 +106,7 @@ Read these files to get the exact parameter schema before constructing nodes:
 - Inbox polling scans the 20 most recent inbox items.
 - Matching items are processed one at a time via `Split In Batches` with `batchSize: 1`.
 - After converting an inbox item to a job, the workflow waits **500 ms**, re-fetches the inbox item, and resolves the job UUID via `converted_to_job_uuid || convertResult.uuid`.
+- If the UUID is not yet resolved after the first fetch, the planned multi-retry loop (Phase 4) will wait **3 s** and re-fetch once more before giving up.
 - Online Service Enquiry messages update the created job description and queue.
 - Cooltech Website enquiries create/update the job contact, update the job description, and assign the target queue.
 - If a conversion succeeds in ServiceM8 but the node reports an error, the fallback UUID-resolution path prevents the workflow from stopping on that item.
@@ -112,9 +114,66 @@ Read these files to get the exact parameter schema before constructing nodes:
 - Both `Merge Online Data` and `Merge Website Data` now apply per-line `.trim()` + blank-line collapsing to descriptions, removing HTML-to-text tab indentation.
 - `Merge Online Data` and `Merge Website Data` were crashing with `"A 'json' property isn't an object"` in `runOnceForEachItem` mode. Fixed by changing both to `runOnceForAllItems` mode using `$input.all()`, which avoids the n8n validation issue in SplitInBatches contexts. Both nodes now use `$('CONFIG').first().json.targetQueueUuid` for the queue UUID.
 - `Merge Website Data` was also hardened: removed all cross-node references (`$("Filter & Route")`, `$("Convert Website to Job")`); only uses `$json` fields from the current node input (`Fetch Converted Website Message`).
-- `Update Website Job` was fixed: changed from `$("Merge Website Data")` cross-node refs to `$json.jobUuid`, `$json.description`, `$json.queueUuid`.
-- Later (2026-06-24): A test Cooltech Website enquiry exposed two additional bugs in the Website path:
-  - **Contact parsing**: The HTML-to-text format places labels and values on separate lines (e.g. `Full Name:\nKatwill Testautomation`). The old regex `/^(Full Name):\s*/i` failed because lines start with `\t`. Fix: `findValueAfterLabel()` helper that finds the label line then scans forward for the next non-empty value line.
-  - **`$json` overwrite by ServiceM8 node**: `Create Job Contact` (a ServiceM8 `job.updateContacts` call) outputs its own result `{"uuid": "..."}`, overwriting `$json.jobUuid`/`description`/`queueUuid` before `Update Website Job` runs. Fix: `Update Website Job` now uses `$("Merge Website Data").first().json.*` instead of `$json.*`.
-  - **Finish node crash on error output**: `Finish Website Item` (Code node, `runOnceForEachItem`) crashed with the same `"A 'json' property isn't an object"` error when receiving the error output from `Update Website Job`. Fix: switched both `Finish Website Item` and `Finish Online Item` to `runOnceForAllItems` with `$input.all().map(...)`.
+- **Bugs found and fixed (2026-06-24, execution 70987):**
+  1. **Contact parsing broken**: HTML-to-text format places labels and values on separate lines (e.g. `Full Name:\nKatwill Testautomation`). Old regex `/^(Full Name):\s*/i` failed because lines after conversion start with `\t`. Fix: `findValueAfterLabel()` helper in Merge Website Data that finds the label line then scans forward for the next non-empty value line.
+  2. **`$json` overwrite by ServiceM8 node**: `Create Job Contact` (a ServiceM8 `job.updateContacts` call) outputs its own result `{"uuid": "..."}`, overwriting `$json.jobUuid`/`description`/`queueUuid` before `Update Website Job` runs. Fix: `Update Website Job` now uses `$("Merge Website Data").first().json.*` instead of `$json.*`.
+  3. **Finish node crash on error output**: `Finish Website Item` (Code node, `runOnceForEachItem`) crashed with the same `"A 'json' property isn't an object"` error when receiving the error output from `Update Website Job`. Fix: switched both `Finish Website Item` and `Finish Online Item` to `runOnceForAllItems` with `$input.all().map(...)`.
 - Backfilled existing jobs (Kylie Kylie job, Renee Lancaster job, Katwill Testautomation job) with descriptions, contacts, and queue assignments via direct ServiceM8 API after workflow errors.
+- **Attachment auto-transfer verified**: ServiceM8 automatically transfers attachments from inbox messages to jobs upon conversion. No custom attachment handling needed.
+
+## Planned Changes (next session)
+
+### Phase 4 — Multi-retry Loop (6 new nodes)
+After each path's 500ms fetch, insert a Switch + Wait 3s + Re-fetch:
+- `UUID Resolved? (Online/Website)` — checks `converted_to_job_uuid`
+  - `true` → routes to Merge (existing path)
+  - `false` → `Wait (3s)` → `Fetch (2)` → Merge
+- Both paths get this treatment: 3 new nodes each (Switch + Wait + Fetch)
+
+### Phase 5 — Context Restoration (1 new node + 1 edit)
+Insert `Restore Website Context` Code node between `Create Job Contact` and `Update Website Job`:
+- Merges contact result (`$json`) with saved context from `$("Merge Website Data").first().json`
+- Then revert `Update Website Job` to use `$json.jobUuid`, `$json.description`, `$json.queueUuid` (replacing current cross-node refs)
+
+### Implementation Process
+1. Read current workflow JSON from n8n via `get_workflow_details`
+2. Plan node positions and connections
+3. Apply operations with `update_workflow` (atomic batch ops)
+4. Re-publish with `publish_workflow`
+5. Test with a real or simulated enquiry
+6. Commit changes
+
+## Key Code Patterns
+
+### Context restoration (to prevent `$json` overwrite)
+```javascript
+// Restore Website Context — placed after Create Job Contact
+const savedContext = $("Merge Website Data").first().json;
+return {
+  jobUuid: savedContext.jobUuid,
+  description: savedContext.description,
+  queueUuid: savedContext.queueUuid,
+  contactResult: $json,  // preserve contact creation result
+};
+```
+
+### Finish node (runOnceForAllItems, error-output safe)
+```javascript
+const items = $input.all();
+return items.map(item => ({
+  json: {
+    processed: true,
+    route: item.json.route || 'unknown',
+    ...item.json,
+  },
+}));
+```
+
+### Description clean-up (used in both Merge nodes)
+```javascript
+const clean = description
+  .split('\n')
+  .map(l => l.trim())
+  .filter(l => l !== '')
+  .join('\n');
+```
