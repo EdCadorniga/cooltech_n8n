@@ -7,8 +7,8 @@ export async function scenarios({runPilot,map,digest}, makeLedger){
   async function model(n,fault){
     const source=id(n),original=id(n+30),sender='test@example.invalid';
     const raw={uuid:source,active:true,is_archived:false,snooze_until_timestamp:null,converted_to_job_uuid:null,
-      from_email:sender,subject:'New quote request: Split',timestamp:'2030-01-02T00:01:00Z',
-      message_text:`New website quote request
+      from_email:sender,subject:n===2?'Website form delivery':'New quote request: Split',timestamp:'2030-01-02T00:01:00Z',
+      message_text:`${n===1?'Mailer preamble\n\n':''}New website quote request
 Job
 System Split
 Sizing
@@ -32,8 +32,7 @@ INSTALL QUOTE: ${n===1?'DUCTED':'SPLIT'}
 Fixture scope
 
 ---
-Date: Synthetic
-Page URL: https://cooltechac.com.au/${n===1?'':'contact-us/'}`};
+Date: Synthetic${n===2?'':'\nPage URL: https://cooltechac.com.au/services/ducted/?ref=example'}`};
     const data=new Map(), bytes=new Map([[original,img(1)]]),events=[];
     const originalRow={uuid:original,active:1,related_object:'inboxmessage',related_object_uuid:source,attachment_name:'duplicate.png'};
     let reveal,hidden=false;
@@ -116,10 +115,17 @@ Page URL: https://cooltechac.com.au/${n===1?'':'contact-us/'}`};
   must((await runPilot(g.p,g.d)).reason==='template_ineligible'&&!g.events.length,'published jobs overlap');
   g.raw.subject='New quote request: Split';
   const genuine=g.raw.message_text;
-  g.raw.message_text=genuine.replace(/\/contact-us\/$/,'/contact-us/?forwarded=1');
-  must((await runPilot(g.p,g.d)).reason==='template_ineligible'&&!g.events.length,'unapproved footer');
-  g.raw.message_text=genuine+'\nForwarded text';
-  must((await runPilot(g.p,g.d)).reason==='template_ineligible'&&!g.events.length,'footer must be last');
+  g.raw.message_text=genuine.replace('New website quote request','Website message');
+  must((await runPilot(g.p,g.d)).reason==='template_ineligible'&&!g.events.length,'subject and URL alone do not match');
+  g.raw.message_text='The phrase New website quote request is mentioned, but no form was submitted.';
+  must((await runPilot(g.p,g.d)).reason==='template_ineligible'&&!g.events.length,'marker without valid template holds');
+  g.raw.message_text='  ';
+  g.raw.body=genuine.split('\n---')[0].replace('New website quote request','NEW WEBSITE QUOTE REQUEST');
+  g.raw.timestamp='2030-01-02 10:01:00';
+  g.raw.snooze_until_timestamp='0000-00-00 00:00:00';
+  must((await runPilot(g.p,g.d)).reason==='source_ineligible'&&!g.events.length,'inbox timestamp without verified offset holds');
+  g.p.inboxUtcOffset='+10:00';
+  must((await runPilot(g.p,g.d)).status==='verified','body fallback, no footer and verified inbox offset');
   const h=await model(7,'wrongReceipt');
   must((await runPilot(h.p,h.d)).reason==='receipt_mismatch'&&h.events.length===1,'wrong receipt blocks child writes');
   return {status:'verified',mode:'synthetic',cases:8};

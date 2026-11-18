@@ -7,9 +7,16 @@ const zero = '00000000-0000-0000-0000-000000000000';
 export const flag = v => [true, 1, '1', 'true'].includes(v) ? true :
   [false, 0, '0', 'false'].includes(v) ? false : undefined;
 export const blank = v => v === null || v === '' || v === zero;
+export const unsnoozed = v => blank(v)||v==='0000-00-00 00:00:00';
 const exact = (row, fields) => row && Object.entries(fields).every(([k,v]) => row[k] === v);
 const snapshot = row => JSON.stringify(Object.entries(row).sort(([a],[b])=>a.localeCompare(b)));
 const iso = v => typeof v === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?(?:Z|[+-]\d\d:\d\d)$/.test(v) ? Date.parse(v) : NaN;
+const validOffset=v=>typeof v==='string'&&/^[+-](?:(?:0\d|1[0-3]):[0-5]\d|14:00)$/.test(v);
+export function sourceTimestamp(v,offset){
+  if(typeof v==='string'&&/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(v)&&validOffset(offset))
+    return iso(v.replace(' ','T')+offset);
+  return iso(v);
+}
 const hold = (code) => { throw Object.assign(new Error(code),{hold:code}); };
 export function approval(p, now) {
   const from=iso(p.from), until=iso(p.until), cutoff=iso(p.cutoff);
@@ -17,6 +24,7 @@ export function approval(p, now) {
   if (![p.source,p.client].every(v=>UUID.test(v)&&v!==zero) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.sender??'') ||
       !Array.isArray(p.emailFiles)||!Array.isArray(p.inlineIds)||ids.length>8||new Set(ids).size!==ids.length||
       !ids.every(v=>UUID.test(v)&&v!==zero)||!(cutoff<=from&&from<=now&&now<=until&&until-from<=15*60000&&from-cutoff<=86400000)||
+      (p.inboxUtcOffset!==undefined&&!validOffset(p.inboxUtcOffset))||
       (ids.length && !['inbox','inboxmessage'].includes(p.inboxRelation))) hold('approval_invalid');
   return {cutoff,until};
 }
@@ -30,12 +38,12 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
       const checkWindow=()=>approval(p,now());
       const source=async()=>{
         const raw=await remote.get('inboxmessage',p.source);
-        const stamp=iso(raw?.timestamp);
+        const stamp=sourceTimestamp(raw?.timestamp,p.inboxUtcOffset);
         if (!raw||raw.uuid!==p.source||flag(raw.active)!==true||flag(raw.is_archived)!==false||
-            !blank(raw.converted_to_job_uuid)||!blank(raw.snooze_until_timestamp)||
+            !blank(raw.converted_to_job_uuid)||!unsnoozed(raw.snooze_until_timestamp)||
             raw.from_email?.toLowerCase()!==p.sender.toLowerCase()||!(window.cutoff<=stamp&&stamp<=now()))
           hold('source_ineligible');
-        const mapped=map({...raw,archived:false,converted_to_job_uuid:'',clients:[p.client],cutoff:p.cutoff,files:[]});
+        const mapped=map({...raw,timestamp:new Date(stamp).toISOString(),archived:false,converted_to_job_uuid:'',clients:[p.client],cutoff:p.cutoff,files:[]});
         if(mapped.route!=='quote')hold('template_ineligible');
         return {raw,mapped};
       };
