@@ -94,7 +94,8 @@ Read these files to get the exact parameter schema before constructing nodes:
 ## Active n8n Resources (current session)
 
 - **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
-- **Active workflow**: `tlomuOHDE0aCDwwp` ("COOLTECH_Inbox_to_Job", 28 nodes, native ServiceM8 nodes, published and active, active version `ee380c9b`)
+- **Active workflow**: `tlomuOHDE0aCDwwp` (`COOLTECH_Inbox_to_Job`, 30 nodes, active and not archived; published and draft version `358bb45b-3677-487b-8274-7362e8b6500b`, verified 2026-11-18).
+- **Website Quotes**: Inactive, unpublished draft `WLNTc3jAC37vdSqE`. See [draft handoff](quotes/README.md) and [plan](PLAN_Website_Quotes.md). Keep the live jobs workflow unchanged; no ServiceM8 test account is available.
 - **Schedule**: Every **5 minutes** (changed from 10 min on 2026-06-24)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
 - **Reference workflow**: `XFf8KEv7i8uOIRX6` ("Wauchope Solar and Electrical SM8", 66 nodes, webhook-driven — studied for multi-retry and context restoration patterns)
