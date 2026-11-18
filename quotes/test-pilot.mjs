@@ -86,16 +86,16 @@ test('authenticated HTTP envelope, bounded permit and one invocation',async()=>{
     assert.equal((await (await fetch(url,{method:'POST',headers})).json()).reason,'approval_invalid');
   }finally{await new Promise(r=>server.close(r));}
 });
-test('generated n8n lanes: fixture gate, disabled HTTP and receipt contract',()=>{
+test('generated manual-only n8n path: unbound HTTP and receipt contract',()=>{
   execFileSync(process.execPath,[fileURLToPath(new URL('./build.mjs',import.meta.url))]);
   const {nodes,edges}=JSON.parse(readFileSync(new URL('./nodes.json',import.meta.url),'utf8'));
-  const gate=nodes.find(n=>n.name.startsWith('Pilot sealed'));
+  const manual=nodes.find(n=>n.type.endsWith('.manualTrigger'));
   const receipt=nodes.find(n=>n.name==='Verify pilot result');
   const http=nodes.find(n=>n.type.endsWith('httpRequest'));
-  assert.deepEqual(new Function(gate.parameters.jsCode)(),[{json:{mode:'synthetic'}}]);
+  assert.equal(nodes.length,3);
   assert.equal(http.disabled,true);
   assert.equal(http.parameters.url,'https://cooltech-pilot.invalid/pilot');
-  assert.equal(edges.find(e=>e.target===http.name).sourceIndex,1);
+  assert.deepEqual(edges,[{source:manual.name,target:http.name},{source:http.name,target:receipt.name}]);
   const verify=json=>new Function('$input',receipt.parameters.jsCode)({first:()=>({json})});
   assert.deepEqual(verify({protocol:'cooltech-one-message-v1',status:'verified',quote:id,files:2}),[{json:{status:'verified',quote:id,files:2}}]);
   assert.throws(()=>verify({status:'verified',quote:id,files:2}),/no_verified_result/);
