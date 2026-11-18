@@ -1,18 +1,34 @@
 return $input.all().map(({json:m})=>{
-  const body=String(m.message_text||m.body||'').replace(/\r/g,'');
+  const body=String(m.message_text||m.body||'').replace(/\r/g,'').trimStart();
   const source=m.uuid;
   const done=(route,reason)=>({json:{source,scenario:m.scenario,route,reason}});
-  if(!body.startsWith('New website quote request')||!String(m.subject).startsWith('New quote request:'))return done('skip','markers');
+  const subject=String(m.subject||'');
+  if(/^\s*online service enquiry/i.test(String(m.message_text||''))||
+     subject.replace(/[\u2010-\u2015]/g,'-').replace(/\s+/g,' ').toLowerCase().includes('new enquiry - cooltech website'))return done('skip','jobs overlap');
+  if(!/^New website quote request(?=$|\s|[A-Z])/.test(body)||!/^New quote request:\s*\S/.test(subject))return done('skip','markers');
   if(!Number.isFinite(Date.parse(m.timestamp))||!Number.isFinite(Date.parse(m.cutoff)))return done('review','timestamp');
   if(Date.parse(m.timestamp)<Date.parse(m.cutoff)||Number(m.archived)||m.converted_to_job_uuid)return done('skip','source state');
-  if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(source)||m.clients.length!==1)return done('review','identity');
+  if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(source)||m.clients?.length!==1||body.length>50000)return done('review','identity');
+  const footers=body.match(/^[ \t]*Page URL:[ \t]*\S+[ \t]*$/gm)??[];
+  if(footers.length!==1||!/(?:^|\n)[ \t]*Page URL:[ \t]*https:\/\/cooltechac\.com\.au\/(?:contact-us\/)?[ \t]*\s*$/.test(body))
+    return done('review','unapproved page footer');
   const parts=body.split(/ServiceM8 job notes \(copy and paste\)/i);
   if(parts.length!==2)return done('review','template');
-  const site=parts[1].match(/^Job address:[ \t]*(.+?)(?=\nContact:)/s)?.[1]?.trim();
-  const contact=parts[1].match(/^Contact:[ \t]*(\S[^\n]*?)\s+(\+?[\d ()-]{8,20})[ \t]*$/m);
-  const email=parts[1].match(/^Email:[ \t]*([^\s@]+@[^\s@]+\.[^\s@]+)[ \t]*$/m)?.[1];
+  const details=parts[1].trimStart();
+  const site=details.match(/^Job address:\s*(.+?)(?=\n[ \t]*Contact:)/s)?.[1]?.trim();
+  const contact=details.match(/^[ \t]*Contact:\s*(\S[^\n]*?)\s+(\+?[\d ()-]{8,22})[ \t]*$/m);
+  const email=details.match(/^[ \t]*Email:\s*([^\s@]+@[^\s@]+\.[^\s@]+)[ \t]*$/m)?.[1];
   const fields=parts[0].match(/(?:^|\n)[ \t]*Job[ \t]*\n([\s\S]*)$/)?.[1];
-  if(!site||!contact||!email||!fields)return done('review','missing mandatory field');
+  const suppliedPhone=contact?.[2].replace(/[ ()-]/g,'')??'';
+  const domestic=suppliedPhone.replace(/^\+?61/,'0');
+  // The form has emitted bare 61 + area + seven digits. Keep that value
+  // verbatim as a non-dialed Phone field rather than inventing a missing digit.
+  const phoneField=/^04\d{8}$/.test(domestic)?'mobile':
+    /^0[2378]\d{8}$/.test(domestic)||/^61[2378]\d{7}$/.test(suppliedPhone)?'phone':null;
+  const note=details.split(/^[ \t]*---[ \t]*$/m);
+  if(!site||site.length>500||!contact||contact[1].length>120||!phoneField||!email||email.length>254||!fields||
+     note.length!==2||!/^Job address:/m.test(note[0])||!/^[ \t]*Status:[ \t]*Quote[ \t]*$/m.test(note[0])||
+     !/^[ \t]*Job description:[ \t]*\n\s*\S/m.test(note[0])||note[0].length>10000)return done('review','missing mandatory field');
   const links=[],answers=['Job'];
   for(const line of fields.split('\n').map(v=>v.trim()).filter(Boolean)){
     if(/^Photo:/i.test(line)){
@@ -24,8 +40,9 @@ return $input.all().map(({json:m})=>{
     }else if(/https?:\/\//i.test(line))return done('review','unexpected URL');
     else answers.push(/^(Home|Sizing|Placement|Customer)$/.test(line)?'\n'+line:line);
   }
+  if(links.length>3||new Set(links.map(p=>p.label.toLowerCase())).size!==links.length||answers.join('\n').length>12000)return done('review','template bounds');
   return {json:{source,scenario:m.scenario,route:'quote',links,files:m.files,
     job:{status:'Quote',queue_uuid:'01a1ddb2-8d2e-7fb6-a678-ec066fe0fe4b',company_uuid:m.clients[0],job_address:site,job_description:answers.join('\n')},
-    contact:{type:'JOB',first:contact[1].split(' ')[0],last:contact[1].split(' ').slice(1).join(' '),mobile:contact[2],email},
-    internalNote:links.map(p=>p.label+': '+p.url).join('\n')}};
+    contact:{type:'JOB',first:contact[1].split(/\s+/)[0],last:contact[1].split(/\s+/).slice(1).join(' '),[phoneField]:suppliedPhone,email},
+    internalNote:note[0].trim()+(links.length?'\n\nSource photos\n'+links.map(p=>p.label+': '+p.url).join('\n'):'')}};
 });

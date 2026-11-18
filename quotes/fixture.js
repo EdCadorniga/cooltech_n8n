@@ -25,10 +25,12 @@ second line
 ServiceM8 job notes (copy and paste)Job address: 1 Fixture Lane
 Contact: Fixture Person 0400000000
 Email: fixture@example.invalid
+Status: Quote
 Job description:
 INSTALL QUOTE: ${system}
 ---
-Date: synthetic`;
+Date: synthetic
+Page URL: https://cooltechac.com.au/`;
   return {scenario,uuid,subject:(scenario==='reply'?'Re: ':'')+'New quote request: '+system,
     message_text:scenario==='wrong-body'?'Online Service Enquiry':scenario==='missing'?body.replace('Contact: Fixture Person 0400000000','Contact:'):body,
     timestamp:scenario==='old'?'1999-01-01T00:00:00Z':'2030-01-02T00:00:00Z',
