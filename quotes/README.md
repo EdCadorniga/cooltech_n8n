@@ -2,6 +2,22 @@
 
 ## Current pilot handoff
 
+**No private nodes — current requirement.** The custom-node publication was
+paused and `WLNTc3jAC37vdSqE` is inactive. Draft
+`123e43fb-c25a-4294-bd62-724b6093feff` uses the same installed ServiceM8 inbox
+node as the jobs workflow, plus built-in triggers and Code. Hosted read-only
+run `286898` inspected 20 messages, found zero candidates and made no writes.
+The five-minute trigger is present in the draft but is not running.
+`katwill-standard-intake.ts` records the new intake; the previous expanded
+workflow is historical only. Do not restore it to production.
+
+**Resume:** Build the missing write branch with ordinary n8n nodes. Verify a
+standard Postgres credential can reach the dedicated ledger with TLS
+certificate verification; never use the shared `Postgres account`. Verify
+the standard-node file download/upload limits and exact-UUID readbacks before
+resuming quote processing. Review the intake gap before choosing any replay;
+do not automatically process old mail or the pilot. Keep live jobs unchanged.
+
 **Expanded production canvas — `0d1822fc-8858-4f5d-a700-32f31ec20998`.**
 The published 18-node revision replaces the single batch node with real
 stages for fetching, selection, one-at-a-time looping, ledger claim, source

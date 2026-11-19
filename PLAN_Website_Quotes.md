@@ -1,6 +1,6 @@
 # Cooltech — Website Quotes Automation
 
-**Status:** `WLNTc3jAC37vdSqE` is separately published on a five-minute schedule with a 20-item scan. The cutoff is 2026-11-19 07:20:19 UTC. No backlog replay; unsupported photos and email attachments are held. See the [rollout handoff](quotes/README.md#current-pilot-handoff).
+**Status:** `WLNTc3jAC37vdSqE` is inactive during migration away from private nodes. Its standard ServiceM8 intake passed a read-only 20-item scan. The standard-node write path is not yet wired. See the [handoff](quotes/README.md#current-pilot-handoff).
 **Workflow:** `COOLTECH_Website_to_Quote`
 
 **Initial estimate:** 4–6 hours of hands-on work if the existing integration supports quote routing and attachment transfer. Re-estimate after discovery if a different write path, custom attachment handling, or a separate test environment is needed. Client approval and monitoring time are separate.
