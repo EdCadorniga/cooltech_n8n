@@ -11,6 +11,14 @@ so the hosted draft still has the sealed legacy graph. This implements the
 one-message, three-linked-photo pilot only; direct email attachments cause a
 hold. It is not a scheduled production rollout.
 
+Local infrastructure checks: the extension loaded on n8n `2.45.4` with
+the ServiceM8 credential type present. In a disposable PostgreSQL `18.6`
+instance, two concurrent SQL sessions using the restricted role attempted
+the same synthetic permit; exactly one claim succeeded. These are not
+hosted binding or ServiceM8 production tests. The Katwill infrastructure
+repo's `main` push triggers a shared-stack redeploy; don't push it as a
+staging step. Verify current backups and obtain a restart window.
+
 1. **Katwill admin:** use `node quotes/stage-katwill.mjs <new-directory>` and
    `npm ci --omit=dev` inside the staged directory on the target OS/architecture
    (the image decoder has native dependencies). Stage the directory outside the
