@@ -9,11 +9,13 @@ The five-minute schedule and 20-item scan were removed. ServiceM8 event
 subscription `cooltech-quotes` (`inbox.message_received`) points at that URL
 and is active with no failures. The webhook parses the delivered UUID from
 several payload shapes, re-reads that single inbox item, and feeds it into
-the same one-at-a-time pipeline; when no UUID is present it falls back to
-the newest single inbox item. It responds immediately (200). Webhook
-executions `286971` and the no-UUID fallback succeeded with zero eligible
-enquiries and zero writes. The manual branch still scans 20 items
-read-only for checking.
+the same one-at-a-time pipeline. There is deliberately no newest-item
+fallback — fetching the newest message could process the wrong enquiry if
+messages arrive close together, so a delivery without a UUID ends without
+writes. It responds immediately (200). Webhook executions `286979` (UUID
+path) and `286980` (no-UUID path) succeeded with zero eligible enquiries
+and zero writes. The manual branch still scans 20 items read-only for
+checking.
 
 **Standard-node production build — `c21f6f97-0136-4fac-b071-436a0b96337a`.**
 The live workflow has 51 nodes and zero private `CUSTOM.*` nodes. It uses the
