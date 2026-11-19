@@ -33,9 +33,16 @@ sealing and the unresolved-write branches in test runs. No eligible live
 submission has exercised the full write path yet. The completed pilot is not
 replayable; do not process backlog or edit the live jobs workflow.
 
-**Resume:** Monitor the five-minute executions and the ledger
-`batch_results` table. Review the first eligible new enquiry end to end in
-ServiceM8. Do not restore the custom-node versions.
+**Resume:** (1) Audit `WLNTc3jAC37vdSqE` for unnecessary steps,
+inefficient processing, bugs and logic errors. (2) Monitor webhook executions
+and the ledger `batch_results` table; review the first eligible new enquiry
+end to end in ServiceM8. (3) Plan the combination with live jobs
+`tlomuOHDE0aCDwwp`: one ServiceM8 subscription points at one callback URL,
+so prefer a single combined webhook workflow that routes the delivered UUID
+to the quotes branch or the jobs branch, sharing the claim ledger. Change
+the jobs workflow to process the webhook-reported UUID instead of its
+latest-20 scan, only after separate approval and testing. Do not restore
+the custom-node versions or replay the pilot.
 
 **Expanded production canvas — `0d1822fc-8858-4f5d-a700-32f31ec20998`.**
 The published 18-node revision replaces the single batch node with real
