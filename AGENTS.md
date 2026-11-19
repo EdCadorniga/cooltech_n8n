@@ -95,7 +95,7 @@ Read these files to get the exact parameter schema before constructing nodes:
 
 - **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
 - **Active workflow**: `tlomuOHDE0aCDwwp` (`COOLTECH_Inbox_to_Job`, 30 nodes, active and not archived; published `358bb45b-3677-487b-8274-7362e8b6500b`, draft `3558c490-c81b-4556-a517-6f99b3909871`, verified 2026-11-18). Inspect the published version for production behavior.
-- **Website Quotes**: Manual-only, inactive, unpublished draft `WLNTc3jAC37vdSqE`. The one approved production Quote was completed via ledger-guarded repair and independently verified. Permits closed; never replay that source. Do not use `Postgres account` for the ledger. See the [pilot handoff](quotes/README.md#current-pilot-handoff). Keep the live jobs workflow unchanged.
+- **Website Quotes**: `WLNTc3jAC37vdSqE` is published separately and checks the latest 20 inbox items every five minutes. Only post-cutoff website quote submissions are eligible. Manual execution is read-only. Use the dedicated Cooltech ledger; never use `Postgres account` or replay the pilot. See the [rollout handoff](quotes/README.md#current-pilot-handoff). Keep the live jobs workflow unchanged.
 - **Schedule**: Every **5 minutes** (changed from 10 min on 2026-06-24)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
 - **Reference workflow**: `XFf8KEv7i8uOIRX6` ("Wauchope Solar and Electrical SM8", 66 nodes, webhook-driven — studied for multi-retry and context restoration patterns)

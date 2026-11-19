@@ -10,6 +10,7 @@ import {scenarios,stubLedger} from './scenarios.mjs';
 import {runPilot} from './engine.mjs';
 import {QUEUE} from './engine.mjs';
 import {runKatwillPilot} from './katwill-runtime.mjs';
+import {selectInbox,timestampOf} from './katwill-scan.mjs';
 import {map} from './mapping.mjs';
 import {ledgerFor} from './postgres.mjs';
 import {readBounded,serviceM8} from './servicem8.mjs';
@@ -21,6 +22,19 @@ import {fileURLToPath} from 'node:url';
 
 const digest=b=>createHash('sha256').update(b).digest('hex');
 const id='00000000-0000-4000-8000-000000000001';
+test('20-item intake excludes pre-rollout, pilot, unrelated and duplicate records',()=>{
+  const base={uuid:id,from_email:'customer@example.invalid',active:'1',is_archived:'0',
+    converted_to_job_uuid:'',snooze_until_timestamp:'0000-00-00 00:00:00',
+    subject:'New quote request: Website',timestamp:'2026-11-19 20:00:00',
+    message_text:'New website quote request\nPage URL: https://cooltechac.com.au/quote/'};
+  const stamp=Date.parse('2026-11-19T09:00:00Z');
+  assert.equal(timestampOf(base.timestamp),stamp);
+  assert.equal(selectInbox([base,base,{...base,subject:'Other'},{...base,from_email:'admin@sm8setup.com.au'}],
+    stamp-1,stamp+1).length,1);
+  assert.equal(selectInbox([base],stamp+1,stamp+2).length,0);
+  assert.equal(selectInbox([{...base,subject:base.subject+' New Enquiry - Cooltech Website'}],stamp-1,stamp+1).length,0);
+  assert.throws(()=>selectInbox(Array(21).fill(base),stamp-1,stamp+1));
+});
 test('Katwill runtime verifies one Quote and three decoded photos with no repeat POST',async()=>{
   const db=new PGlite();
   const uid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
@@ -28,6 +42,8 @@ test('Katwill runtime verifies one Quote and three decoded photos with no repeat
   const bindingSql="SELECT current_database()='cooltech_quotes'";
   const migration=readFileSync(new URL('./katwill-ledger.sql',import.meta.url),'utf8');
   const repairMigration=execFileSync(process.execPath,[fileURLToPath(new URL('./build-repair-migration.mjs',import.meta.url))],{encoding:'utf8'});
+  const rolloutMigration=execFileSync(process.execPath,[fileURLToPath(new URL('./build-rollout-migration.mjs',import.meta.url))],{encoding:'utf8'});
+  const scheduledSource=uid(5);
   const testDb=(await db.query('SELECT current_database() AS name')).rows[0].name;
   const stamp=new Date(Date.now()-1000).toISOString();
   const remoteRows=new Map(), uploaded=new Map(), posts=[];
@@ -40,7 +56,8 @@ test('Katwill runtime verifies one Quote and three decoded photos with no repeat
       if(resource==='queue')return {uuid:QUEUE,name:'X-New Website Quotes',active:1};
       if(resource==='job'&&k===baseline)return {uuid:k,queue_uuid:QUEUE,status:'Quote',active:1,quote_sent:0};
       if(resource==='inboxmessage')return {uuid:k,active:1,is_archived:0,converted_to_job_uuid:null,
-        snooze_until_timestamp:null,from_email:'admin@sm8setup.com.au',timestamp:stamp,
+        snooze_until_timestamp:null,from_email:k===scheduledSource?'customer@example.invalid':'admin@sm8setup.com.au',
+        timestamp:stamp,subject:'New quote request: Web',
         message_text:`New website quote request
 Job
 System Split
@@ -55,7 +72,9 @@ Category: Install quote
 Status: Quote
 Job description:
 INSTALL QUOTE: SPLIT
-Fixture scope`};
+Fixture scope
+---
+Page URL: https://cooltechac.com.au/quotes/`.split('\n').filter(line=>k!==scheduledSource||!line.startsWith('Photo:')).join('\n')};
       return hide&&resource==='job'?null:remoteRows.get(resource+k)??null;
     },
     async list(resource,field,k){return [...remoteRows].filter(([p,r])=>p.startsWith(resource)&&r[field]===k).map(([,r])=>r);},
@@ -139,6 +158,13 @@ Fixture scope`};
     assert.equal(repaired.quote,existingQuote);
     assert.equal(posts.filter(p=>p==='job').length,2);
     assert.equal((await runKatwillPilot({...args,source:lost,existingQuote})).reason,'repair_closed_or_used');
+    await db.exec(rolloutMigration.replace("current_database() <> 'cooltech_quotes'",`current_database() <> '${testDb}'`));
+    await db.exec("INSERT INTO cooltech_quotes.rollout(starts_at) VALUES (now()-interval '1 minute')");
+    const scheduled={stamp:Date.parse(stamp),rawStamp:stamp,sender:'customer@example.invalid'};
+    const batch=await runKatwillPilot({...args,source:scheduledSource,scheduled});
+    assert.equal(batch.status,'verified',JSON.stringify(batch));
+    assert.equal(batch.files,0);
+    assert.equal((await runKatwillPilot({...args,source:scheduledSource,scheduled})).status,'skipped');
   }finally{await db.close();}
 });
 test('Katwill ledger: only a live permit can mint each intent once',async()=>{

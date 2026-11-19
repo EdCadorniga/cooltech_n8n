@@ -49,6 +49,12 @@ export function serviceM8({key,storageHosts=[],fetcher=fetch,deadline=Date.now()
     return r.headers.get('x-record-uuid');
   };
   return {
+    async recentInbox(){
+      const r=await api('inboxmessage.json?limit=20');
+      const payload=await json(r);
+      if(!Array.isArray(payload.messages)||payload.messages.length>20)throw fail('invalid_inbox_page');
+      return payload.messages;
+    },
     async get(resource,id){
       const r=await api(getPath(resource,id));
       return r.status===404?notFound(r):json(r);

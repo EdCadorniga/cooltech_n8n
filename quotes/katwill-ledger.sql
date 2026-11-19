@@ -20,7 +20,7 @@ CREATE TABLE cooltech_quotes.pilot (
   opens_at timestamptz NOT NULL,
   closes_at timestamptz NOT NULL,
   inbox_utc_offset text NOT NULL CHECK (inbox_utc_offset ~ '^[+-]((0[0-9]|1[0-3]):[0-5][0-9]|14:00)$'),
-  expected_photos integer NOT NULL DEFAULT 3 CHECK (expected_photos = 3),
+  expected_photos integer NOT NULL DEFAULT 3 CHECK (expected_photos BETWEEN -1 AND 3),
   claimed_at timestamptz,
   closed_at timestamptz,
   plan_digest text CHECK (plan_digest ~ '^[0-9a-f]{64}$'),
@@ -95,7 +95,7 @@ $$;
 CREATE FUNCTION cooltech_quotes.reserve(p_source uuid, p_step text, p_target uuid)
 RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $$
   WITH permitted AS (
-    SELECT source FROM cooltech_quotes.pilot
+    SELECT source,expected_photos FROM cooltech_quotes.pilot
     WHERE source = p_source AND claimed_at IS NOT NULL AND plan_digest IS NOT NULL
       AND ((closed_at IS NULL AND clock_timestamp() < closes_at) OR
         (p_step <> 'quote' AND EXISTS (SELECT FROM cooltech_quotes.repair r WHERE r.source=p_source
@@ -108,7 +108,8 @@ RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $$
       WHEN p_step = 'quote' THEN true
       WHEN p_step = 'queue' THEN
         (SELECT count(*) FROM cooltech_quotes.intent WHERE source = p_source AND verified_at IS NOT NULL
-          AND (step IN ('contact', 'note') OR step LIKE 'upload:%' OR step LIKE 'combined:%')) = 5
+          AND (step IN ('contact', 'note') OR step LIKE 'upload:%' OR step LIKE 'combined:%')) = 2 + permitted.expected_photos
+        AND permitted.expected_photos >= 0
         AND EXISTS (SELECT FROM cooltech_quotes.intent WHERE source = p_source
           AND step = 'quote' AND target = p_target AND verified_at IS NOT NULL)
       WHEN p_step LIKE 'upload:%' THEN EXISTS (

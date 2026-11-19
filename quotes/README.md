@@ -2,6 +2,26 @@
 
 ## Current pilot handoff
 
+**Five-minute rollout — published version `aaa21006-916a-4fcb-abe4-8eda44fc78a8`:**
+`katwill-scheduled-workflow.ts` defines separate
+manual read-only and scheduled write branches. The calendar trigger checks
+the newest 20 ServiceM8 inbox messages. The rollout timestamp lives in the
+Cooltech ledger; older mail, the pilot item, unrelated enquiries and already
+claimed UUIDs are excluded. Each candidate is re-read, validated and admitted
+once. Uncertain writes stay in the ledger, not an automatic replay queue.
+Unsupported originals or photos (including HEIC) are held, not silently
+omitted. Review the sanitized execution summary and the ledger
+`batch_results` table; `windowFull` means a burst could outgrow the 20-item
+window. The live jobs workflow is not part of this rollout.
+The cutoff is 2026-11-19 07:20:19 UTC. Hosted manual scan `286875` read 20,
+found zero post-cutoff candidates and made no writes. The two quote-shaped
+messages in the initial inspection were an archived older item with HEIC
+links and the completed pilot. Neither was replayed.
+
+**Resume prompt:** Read the rollout handoff and inspect executions of
+`WLNTc3jAC37vdSqE` and its dedicated ledger. Verify the first eligible new
+Quote and review held/overflow counts. Do not replay the pilot or edit live jobs.
+
 **Pilot verified after repair — 2026-11-19.** One unsent Quote is in
 `X-New Website Quotes`, with the submitted address, description, one matching
 job contact, one job diary note, and three JPEGs that decoded and matched the

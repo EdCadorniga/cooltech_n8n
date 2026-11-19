@@ -80,7 +80,7 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
       if(p.expectedPhotos!==undefined&&files.size!==p.expectedPhotos)hold('unexpected_photo_count');
       if(preflightOnly)return {status:'preflight_verified',files:files.size};
       // Freeze the mapped values and ordered manifest without storing source text or file bytes.
-      await tx.plan(digest(JSON.stringify([m.job,m.contact,m.internalNote,[...files.values()].map(f=>[f.hash,f.name])])));
+      await tx.plan(digest(JSON.stringify([m.job,m.contact,m.internalNote,[...files.values()].map(f=>[f.hash,f.name])])),files.size);
       const fresh=(await source()).raw;
       if(snapshot(fresh)!==snapshot(before.raw))hold('source_changed');
       await inventory();
