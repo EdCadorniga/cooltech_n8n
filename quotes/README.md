@@ -2,6 +2,22 @@
 
 ## Current pilot handoff
 
+**One production write attempt — 2026-11-19, execution `286845`.** The
+single ledger-reserved job UUID exists: an active, unsent `Quote`, with the
+submitted address and description, no company and no queue. The workflow
+stopped before writing the contact, note, photos or queue; none were found
+in independent readback. The exact inbox snapshot matched its before-run
+digest. Job outbound email and SMS history both returned zero. The permit
+closed and the ledger retains the unverified quote intent. Draft restored to
+read-only, inactive and unpublished. No create retry or cleanup.
+
+ServiceM8 returned the unsent flag as boolean `false` and the unset sent
+timestamp as the zero-date string, not the write's numeric `0` and an empty
+date. Code and fixtures were corrected locally; this fix is not deployed.
+Do not replay the original source or clear the one-shot ledger. Any repair
+must be separately approved and address only the already-created Quote UUID,
+never create a replacement.
+
 **Quote-first revision:** ServiceM8's Job Create schema
 requires `status`, not `company_uuid`. The revised pilot creates directly
 in `Quote` status with no preselected client, verifies the submitted job

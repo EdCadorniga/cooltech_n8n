@@ -93,7 +93,7 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
         }
         hold('write_unresolved');
       };
-      const record=async(key,resource,fields,extra=()=>true)=>{
+      const record=async(key,resource,fields,extra=()=>true,createOnly={})=>{
         step=key.startsWith('file:')?'attachment_metadata':key;
         checkWindow();
         const intent=await tx.intent(key,uuid());
@@ -105,7 +105,7 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
           if(key==='quote'&&snapshot((await source()).raw)!==snapshot(before.raw))hold('source_changed');
           checkWindow();
           try {
-            const receipt=await remote.create(resource,{uuid:id,active:1,...fields});
+            const receipt=await remote.create(resource,{uuid:id,active:1,...fields,...createOnly});
             if(receipt != null && receipt!==id)hold('receipt_mismatch');
           } catch(e){if(e.hold)throw e;} // missing/error receipt is settled ONLY by exact read-back
         }
@@ -113,10 +113,11 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
         await tx.confirm(key,id);
         return {id,valid};
       };
-      const unsent=r=>flag(r.quote_sent)===false&&!r.quote_sent_stamp;
+      const unsent=r=>flag(r.quote_sent)===false&&(!r.quote_sent_stamp||r.quote_sent_stamp==='0000-00-00 00:00:00');
       const {queue_uuid,...unrouted}=m.job;
-      const job=await record('quote','job',p.routeLast?{...unrouted,quote_sent:0}:m.job,
-        r=>unsent(r)&&(!p.routeLast||blank(r.queue_uuid))&&(!p.clientless||blank(r.company_uuid)));
+      const job=await record('quote','job',p.routeLast?unrouted:m.job,
+        r=>unsent(r)&&(!p.routeLast||blank(r.queue_uuid))&&(!p.clientless||blank(r.company_uuid)),
+        p.routeLast?{quote_sent:0}:{});
       quote=job.id;
       const contact=await record('contact','jobcontact',{job_uuid:quote,...m.contact});
       const note=m.internalNote?await record('note','note',{related_object:'job',related_object_uuid:quote,note:m.internalNote}):null;

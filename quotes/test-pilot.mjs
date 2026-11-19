@@ -60,9 +60,10 @@ Fixture scope`};
     async list(resource,field,k){return [...remoteRows].filter(([p,r])=>p.startsWith(resource)&&r[field]===k).map(([,r])=>r);},
     async create(resource,row){
       posts.push(resource);
-      remoteRows.set(resource+row.uuid,{...row,...(resource==='job'?{quote_sent:0,queue_uuid:'',company_uuid:row.company_uuid??''}:{})});
+      remoteRows.set(resource+row.uuid,{...row,...(resource==='job'?{quote_sent:false,quote_sent_stamp:'0000-00-00 00:00:00',queue_uuid:'',company_uuid:row.company_uuid??''}:{})});
       if(resource==='job'){
         assert.equal(row.status,'Quote');
+        assert.equal(row.quote_sent,0);
         assert.equal(row.queue_uuid,undefined);
         assert.equal(row.company_uuid,undefined);
         throw new Error('response lost after commit');
