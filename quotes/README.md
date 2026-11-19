@@ -2,12 +2,31 @@
 
 ## Current pilot handoff
 
-**Katwill-native implementation (local, not deployed).** The private node in
+**Production infrastructure deployed — 2026-11-19.** The private node is
+installed on Katwill's shared volume and both n8n containers are healthy
+after restart. PostgreSQL 17 TLS was enabled by reload after a fresh readable
+n8n backup and saved configuration. Existing application auth rules were
+preserved. The dedicated `cooltech_quotes` DB is provisioned, and a test from
+the production n8n container confirmed verified TLS, no direct ledger table
+access, and denial of both non-TLS and internal `n8n` DB logins. The
+`Cooltech Quote Ledger` credential is stored in Katwill. No permit was opened.
+Include the new database in the backup plan before any ongoing processing.
+
+`WLNTc3jAC37vdSqE`, version `b31dd8b4-a867-4417-99a4-3323ee4bc528`,
+is inactive and unpublished with Manual Trigger → native read-only preflight.
+Both credentials are bound; the approved test company and known unsent
+baseline Quote UUIDs are intentionally blank. `katwill-workflow.ts` is the
+sanitized native graph; `workflow.ts` is the older adapter rollback artifact.
+The exact source was fresh when rechecked with three decodable photos and
+zero direct files. ServiceM8 preflight still needs those two UUIDs and
+verification of diary privacy and account-side automation. No write run,
+ServiceM8 or inbox mutation, or live jobs workflow edit or manual run occurred.
+
+**Native node implementation and install reference.** The private node in
 `quotes/katwill/` runs the bounded downloader, full image decoder, ServiceM8
 read-back and durable claim inside the Katwill worker. It needs no external
 adapter host. It defaults to read-only preflight and refuses non-manual
-executions or any workflow other than `WLNTc3jAC37vdSqE`. It is not installed,
-so the hosted draft still has the sealed legacy graph. This implements the
+executions or any workflow other than `WLNTc3jAC37vdSqE`. This implements the
 one-message, three-linked-photo pilot only; direct email attachments cause a
 hold. It is not a scheduled production rollout.
 
@@ -64,7 +83,7 @@ complete preflight for the exact supplied UUID. If it is no longer eligible,
 ask for a fresh exact UUID. Get separate approval for one manual write and
 cleanup. Do not publish, activate, process backlog, or touch live jobs.
 
-**Latest check — 2026-11-19:** No production pilot, permit, ledger deployment,
+**Historical check before infrastructure deployment — 2026-11-19:** No production pilot, permit, ledger deployment,
 or ServiceM8 writes. Katwill read-only execution `286793` proved that
 `Postgres account` connects as an elevated `n8n` role to the internal `n8n`
 database. Do not use it for the ledger. The temporary SQL probe was removed;

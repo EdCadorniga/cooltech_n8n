@@ -95,7 +95,7 @@ Read these files to get the exact parameter schema before constructing nodes:
 
 - **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
 - **Active workflow**: `tlomuOHDE0aCDwwp` (`COOLTECH_Inbox_to_Job`, 30 nodes, active and not archived; published `358bb45b-3677-487b-8274-7362e8b6500b`, draft `3558c490-c81b-4556-a517-6f99b3909871`, verified 2026-11-18). Inspect the published version for production behavior.
-- **Website Quotes**: Manual-only, inactive, unpublished draft `WLNTc3jAC37vdSqE`; disabled and unbound legacy adapter. The locally tested private Katwill node and Cooltech-only ledger still need admin installation/provisioning, hosted read-only preflight, and one approved end-to-end test. Do not use `Postgres account`: it points to elevated access on n8n's internal database. See the [pilot handoff](quotes/README.md#current-pilot-handoff) and [plan](PLAN_Website_Quotes.md). Keep the live jobs workflow unchanged; no ServiceM8 test account is available.
+- **Website Quotes**: Manual-only, inactive, unpublished draft `WLNTc3jAC37vdSqE`, wired to the installed Katwill-native node in read-only mode. The dedicated Cooltech ledger and TLS credential are deployed; ServiceM8 preflight and one approved test remain. Never use `Postgres account` for this ledger. See the [pilot handoff](quotes/README.md#current-pilot-handoff). Keep the live jobs workflow unchanged.
 - **Schedule**: Every **5 minutes** (changed from 10 min on 2026-06-24)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
 - **Reference workflow**: `XFf8KEv7i8uOIRX6` ("Wauchope Solar and Electrical SM8", 66 nodes, webhook-driven — studied for multi-retry and context restoration patterns)

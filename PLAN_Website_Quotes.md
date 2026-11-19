@@ -1,6 +1,6 @@
 # Cooltech — Website Quotes Automation
 
-**Status:** Separate manual-only, inactive, unpublished draft `WLNTc3jAC37vdSqE`, with the old adapter disabled and unbound. The locally tested private Katwill node and isolated PostgreSQL ledger are not deployed. Admin installation/provisioning, hosted read-only preflight and one approved end-to-end test remain. The historical hosted execution `285504` used stubs; no ServiceM8 writes occurred. See the [current pilot handoff](quotes/README.md#current-pilot-handoff). Scheduled processing remains out of scope.
+**Status:** Separate manual-only, inactive, unpublished draft `WLNTc3jAC37vdSqE`. The native Katwill node, dedicated PostgreSQL ledger and scoped TLS credential are deployed. The draft is in read-only preflight mode. ServiceM8 preflight and one approved end-to-end test remain; no ServiceM8 writes occurred. See the [current pilot handoff](quotes/README.md#current-pilot-handoff). Scheduled processing remains out of scope.
 **Workflow:** `COOLTECH_Website_to_Quote`
 
 **Initial estimate:** 4–6 hours of hands-on work if the existing integration supports quote routing and attachment transfer. Re-estimate after discovery if a different write path, custom attachment handling, or a separate test environment is needed. Client approval and monitoring time are separate.
