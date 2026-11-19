@@ -2,9 +2,36 @@
 
 ## Current pilot handoff
 
+**Latest check — 2026-11-19:** No production pilot, permit, ledger deployment,
+or ServiceM8 writes. Katwill read-only execution `286793` proved that
+`Postgres account` connects as an elevated `n8n` role to the internal `n8n`
+database. Do not use it for the ledger. The temporary SQL probe was removed;
+the three-node disabled-adapter graph was restored as draft
+`fb9cba27-be96-4a89-a9fd-c9b2c8ffdc87`, inactive, unpublished and not archived.
+
+`katwill-ledger.sql` is a local migration for a dedicated `cooltech_quotes`
+database on the same server, not for the internal database. The DB admin must
+provision the database and separate owner/runtime roles, apply the migration,
+and configure a new Katwill credential for the runtime role. Grant it `CONNECT`
+on the dedicated DB, `USAGE` on the ledger schema, and `EXECUTE` on the three
+named functions only; do not grant table access. Confirm the role has no
+elevated attributes or inherited privileges and cannot access n8n or other
+clients' tables. Local tests exercised the permit, denied table access and
+repeat create guard; real concurrent sessions, a hosted binding and the
+Katwill-native ServiceM8 graph remain to be verified.
+
+Only the supplied inbox UUID was looked up. Its sender matched, it was active,
+unarchived, unconverted and unsnoozed, and three distinct photos decoded with
+zero direct attachments. Its freshness cutoff is **20 Nov 01:13:57 AEDT**.
+The queue was confirmed active; a bounded filtered job API query did not
+return a matching Quote. Obtain a known unsent Quote UUID and approved test
+client UUID and verify account automation and diary privacy before approving
+a window. If the original item is no longer eligible, ask for a fresh one and
+its exact UUID. Do not open a permit simply because a candidate is available.
+
 **EOS — 2026-11-19:** Next session's goal is one end-to-end manual test of the
 actual production write path, not rollout. No live test or ServiceM8 write
-occurred. Katwill workflow `WLNTc3jAC37vdSqE`, draft
+occurred. Prior Katwill workflow `WLNTc3jAC37vdSqE`, draft
 `45a411ae-eb9a-4d22-8248-388d1f90e7f0`, is inactive, unpublished, not archived,
 and has no pending runs. Its three nodes are Manual Trigger → disabled,
 uncredentialed `.invalid` adapter → receipt verification. No synthetic branch.

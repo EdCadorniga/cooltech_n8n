@@ -19,6 +19,51 @@ import {fileURLToPath} from 'node:url';
 
 const digest=b=>createHash('sha256').update(b).digest('hex');
 const id='00000000-0000-4000-8000-000000000001';
+test('Katwill ledger: only a live permit can mint each intent once',async()=>{
+  const db=new PGlite();
+  const client='00000000-0000-4000-8000-000000000002';
+  const target='00000000-0000-4000-8000-000000000003';
+  const hash=digest('file');
+  const check=async(sql,params,expected)=>assert.equal((await db.query(sql,params)).rows[0].ok,expected);
+  const claim=(source,company,expected)=>check('SELECT cooltech_quotes.claim($1,$2) AS ok',[source,company],expected);
+  const reserve=(step,uuid,expected)=>check('SELECT cooltech_quotes.reserve($1,$2,$3) AS ok',[id,step,uuid],expected);
+  const confirm=(step,uuid,expected)=>check('SELECT cooltech_quotes.confirm($1,$2,$3) AS ok',[id,step,uuid],expected);
+  try{
+    const migration=readFileSync(new URL('./katwill-ledger.sql',import.meta.url),'utf8');
+    await assert.rejects(db.exec(migration),/Expected the dedicated cooltech_quotes database/);
+    await db.exec('ROLLBACK');
+    const testDb=(await db.query('SELECT current_database() AS name')).rows[0].name;
+    assert.match(testDb,/^[a-z_]+$/);
+    await db.exec(migration.replace("current_database() <> 'cooltech_quotes'",`current_database() <> '${testDb}'`));
+    await db.exec(`CREATE ROLE cooltech_quote_runtime;
+      GRANT USAGE ON SCHEMA cooltech_quotes TO cooltech_quote_runtime;
+      GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA cooltech_quotes TO cooltech_quote_runtime;`);
+    await db.query(`INSERT INTO cooltech_quotes.pilot(source,client,opens_at,closes_at)
+      VALUES ($1,$2,now()-interval '1 minute',now()+interval '10 minutes')`,[id,client]);
+    await db.exec('SET ROLE cooltech_quote_runtime');
+    await assert.rejects(db.query('SELECT * FROM cooltech_quotes.pilot'),/permission denied/);
+    await reserve('quote',target,false);
+    await claim(id,target,false);
+    await claim(id,client,true);
+    await claim(id,client,false);
+    await reserve('contact',target,false);
+    await reserve('quote',target,true);
+    await reserve('quote',client,false); // lost create response: no second POST
+    await confirm('quote',client,false);
+    await confirm('quote',target,true);
+    await reserve('upload:'+hash,target,false);
+    await reserve('file:'+hash,target,true);
+    await confirm('file:'+hash,target,true);
+    await reserve('upload:'+hash,client,false);
+    await reserve('upload:'+hash,target,true);
+    await db.exec('RESET ROLE');
+    await db.query('UPDATE cooltech_quotes.pilot SET closed_at=now() WHERE source=$1',[id]);
+    await db.exec('SET ROLE cooltech_quote_runtime');
+    await reserve('note',target,false);
+    await claim(id,client,false);
+    await confirm('upload:'+hash,target,true);
+  }finally{await db.close();}
+});
 test('same pilot engine and stubs as hosted graph',async()=>{
   assert.equal((await scenarios({runPilot,map,digest},stubLedger)).cases,8);
 });
