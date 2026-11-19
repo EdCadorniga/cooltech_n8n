@@ -1,3 +1,10 @@
+const stageNames={
+  fetch_inbox:'Fetch latest inbox page',select_candidates:'Select eligible enquiries',claim:'Claim source in ledger',
+  source:'Reload and map submission',inventory:'Validate attachment inventory and photos',create_quote:'Create unsent Quote',
+  contact:'Add job contact',diary:'Write internal diary note',photos:'Upload and check photos',
+  verify_details:'Verify contact, diary and files',queue:'Move to website quote queue',
+  verify_quote:'Verify final unsent Quote',record_result:'Record outcome',summarize:'Summarize run',
+};
 class CooltechQuotePilot {
   description={
     name:'cooltechQuotePilot', displayName:'Cooltech: One Website Quote',
@@ -10,6 +17,7 @@ class CooltechQuotePilot {
         {name:'Repair Existing Quote Only',value:'repair'},
         {name:'Read Latest 20 (No Writes)',value:'scan'},
         {name:'Process New Website Quotes',value:'batch'},
+        ...Object.entries(stageNames).map(([value,name])=>({name,value})),
       ]},
       {displayName:'Existing Quote UUID',name:'existingQuote',type:'string',required:true,default:'',
         displayOptions:{show:{operation:['repair']}}},
@@ -28,10 +36,11 @@ class CooltechQuotePilot {
   async execute(){
     const param=name=>this.getNodeParameter(name,0);
     const op=param('operation');
-    if(this.getWorkflow().id!=='WLNTc3jAC37vdSqE'||this.getInputData().length!==1||
-      this.getMode()!==(op==='batch'?'trigger':'manual'))
+    const isStage=Object.hasOwn(stageNames,op);
+    if(this.getWorkflow().id!=='WLNTc3jAC37vdSqE'||(!isStage&&this.getInputData().length!==1)||
+      this.getMode()!==(op==='batch'||isStage?'trigger':'manual'))
       throw new Error('This operation is not authorized for the current Cooltech execution mode.');
-    if(!['preflight','run','repair','batch','scan'].includes(op))throw new Error('Select an explicit Cooltech operation.');
+    if(!isStage&&!['preflight','run','repair','batch','scan'].includes(op))throw new Error('Select an explicit Cooltech operation.');
     const existingQuote=op==='repair'?param('existingQuote'):undefined;
     if(op==='repair'&&!existingQuote)throw new Error('Repair requires an existing Quote UUID.');
     const storageHosts=param('storageHosts').split(',').map(s=>s.trim()).filter(Boolean);
@@ -39,6 +48,11 @@ class CooltechQuotePilot {
       throw new Error('Use exact approved storage hostnames.');
     const db=await this.getCredentials('cooltechQuoteLedger');
     const {apiKey:key}=await this.getCredentials('serviceM8CredentialsApi');
+    if(isStage){
+      const {stageBatch}=await import('../katwill-stages.mjs');
+      const outputs=await stageBatch({operation:op,execution:this.getExecutionId(),db,key,storageHosts,input:this.getInputData()});
+      return [outputs.map((item,index)=>({...item,pairedItem:{item:op==='summarize'||op==='select_candidates'?0:index}}))];
+    }
     if(op==='batch'||op==='scan'){
       const {runInboxBatch}=await import('../katwill-batch.mjs');
       return [[{json:await runInboxBatch({db,key,storageHosts,dryRun:op==='scan'})}]];

@@ -11,6 +11,7 @@ import {runPilot} from './engine.mjs';
 import {QUEUE} from './engine.mjs';
 import {runKatwillPilot} from './katwill-runtime.mjs';
 import {selectInbox,timestampOf} from './katwill-scan.mjs';
+import {phaseRunner} from './katwill-stages.mjs';
 import {map} from './mapping.mjs';
 import {ledgerFor} from './postgres.mjs';
 import {readBounded,serviceM8} from './servicem8.mjs';
@@ -22,6 +23,25 @@ import {fileURLToPath} from 'node:url';
 
 const digest=b=>createHash('sha256').update(b).digest('hex');
 const id='00000000-0000-4000-8000-000000000001';
+test('stages advance real work only in order, then stop after a hold',async()=>{
+  const events=[];
+  const runner=phaseRunner(async checkpoint=>{
+    await checkpoint('create_quote');
+    events.push('create');
+    await checkpoint('photos');
+    events.push('photos');
+    return {status:'review',reason:'fixture_error'};
+  });
+  assert.deepEqual(await runner.peek(),{phase:'create_quote'});
+  await assert.rejects(runner.advance('photos'),/order mismatch/);
+  assert.deepEqual(events,[]);
+  assert.deepEqual(await runner.advance('create_quote'),{phase:'photos'});
+  assert.deepEqual(events,['create']);
+  assert.equal((await runner.advance('photos')).result.status,'review');
+  assert.equal((await runner.advance('queue')).result.status,'review');
+  assert.deepEqual(events,['create','photos']);
+  await runner.close();
+});
 test('20-item intake excludes pre-rollout, pilot, unrelated and duplicate records',()=>{
   const base={uuid:id,from_email:'customer@example.invalid',active:'1',is_archived:'0',
     converted_to_job_uuid:'',snooze_until_timestamp:'0000-00-00 00:00:00',
@@ -161,7 +181,12 @@ Page URL: https://cooltechac.com.au/quotes/`.split('\n').filter(line=>k!==schedu
     await db.exec(rolloutMigration.replace("current_database() <> 'cooltech_quotes'",`current_database() <> '${testDb}'`));
     await db.exec("INSERT INTO cooltech_quotes.rollout(starts_at) VALUES (now()-interval '1 minute')");
     const scheduled={stamp:Date.parse(stamp),rawStamp:stamp,sender:'customer@example.invalid'};
-    const batch=await runKatwillPilot({...args,source:scheduledSource,scheduled});
+    const staged=phaseRunner(checkpoint=>runKatwillPilot({...args,source:scheduledSource,scheduled,checkpoint}));
+    for(const phase of ['source','inventory','create_quote','contact','diary','photos','verify_details','queue','verify_quote']){
+      assert.equal((await staged.peek()).phase,phase);
+      await staged.advance(phase);
+    }
+    const batch=(await staged.peek()).result;
     assert.equal(batch.status,'verified',JSON.stringify(batch));
     assert.equal(batch.files,0);
     assert.equal((await runKatwillPilot({...args,source:scheduledSource,scheduled})).status,'skipped');

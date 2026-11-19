@@ -2,6 +2,17 @@
 
 ## Current pilot handoff
 
+**Expanded production canvas — `0d1822fc-8858-4f5d-a700-32f31ec20998`.**
+The published 18-node revision replaces the single batch node with real
+stages for fetching, selection, one-at-a-time looping, ledger claim, source
+mapping, file validation, Quote creation, contact, diary, photos, verification,
+queue assignment, and outcome logging. Production-mode execution `286886`
+traversed the graph on a 20-item window with zero eligible new enquiries and
+zero writes. Ten local tests passed, including staged processing with a
+simulated eligible enquiry. A fresh eligible submission has not yet exercised
+the expanded write path live. The prior four-node version is a rollback
+artifact; the completed pilot is not replayable.
+
 **Five-minute rollout — published version `aaa21006-916a-4fcb-abe4-8eda44fc78a8`:**
 `katwill-scheduled-workflow.ts` defines separate
 manual read-only and scheduled write branches. The calendar trigger checks

@@ -29,7 +29,7 @@ export function approval(p, now) {
   return {cutoff,until};
 }
 
-export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,now=Date.now,preflightOnly=false}) {
+export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,now=Date.now,preflightOnly=false,checkpoint=async()=>{}}) {
   let step='approval';
   let quote;
   try {
@@ -49,9 +49,11 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
         if(mapped.route!=='quote')hold('template_ineligible');
         return {raw,mapped};
       };
+      await checkpoint('source');
       step='source';
       const before=await source();
       const m=before.mapped;
+      await checkpoint('inventory');
       step='inventory';
       const inventory=async()=>{
         const rows=await remote.list('attachment','related_object_uuid',p.source);
@@ -116,6 +118,7 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
       };
       const unsent=r=>flag(r.quote_sent)===false&&(!r.quote_sent_stamp||r.quote_sent_stamp==='0000-00-00 00:00:00');
       const {queue_uuid,...unrouted}=m.job;
+      await checkpoint('create_quote');
       const validUnrouted=r=>unsent(r)&&(!p.routeLast||blank(r.queue_uuid))&&(!p.clientless||blank(r.company_uuid));
       let job;
       if(p.existingQuote){
@@ -130,8 +133,11 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
         job=await record('quote','job',p.routeLast?unrouted:m.job,validUnrouted,p.routeLast?{quote_sent:0}:{});
       }
       quote=job.id;
+      await checkpoint('contact');
       const contact=await record('contact','jobcontact',{job_uuid:quote,...m.contact});
+      await checkpoint('diary');
       const note=m.internalNote?await record('note','note',{related_object:'job',related_object_uuid:quote,note:m.internalNote}):null;
+      await checkpoint('photos');
       const expected=[];
       for(const f of files.values()){
         if(remote.attach){
@@ -170,6 +176,7 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
         await tx.confirm('upload:'+f.hash,a.id);
         expected.push({a,f});
       }
+      await checkpoint('verify_details');
       step='final_readback';
       if(!job.valid(await remote.get('job',quote)))hold('quote_changed');
       const contacts=await remote.list('jobcontact','job_uuid',quote);
@@ -182,6 +189,7 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
       }
       if(snapshot((await source()).raw)!==snapshot(before.raw))hold('source_changed');
       if(p.routeLast){
+        await checkpoint('queue');
         step='queue';
         checkWindow();
         const route=await tx.intent('queue',quote);
@@ -190,6 +198,7 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
           checkWindow();
           try{await remote.routeQuote(quote,queue_uuid);}catch(e){if(e.hold)throw e;}
         }
+        await checkpoint('verify_quote');
         await verify(()=>remote.get('job',quote),r=>exact(r,{uuid:quote,...m.job})&&flag(r.active)===true&&unsent(r)&&
           (!p.clientless||blank(r.company_uuid)));
         await tx.confirm('queue',quote);

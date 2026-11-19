@@ -19,7 +19,7 @@ export const ledgerConfig=db=>({
 
 export async function runKatwillPilot({
   source,client,baseline,key,db,storageHosts=[],now=Date.now,preflightOnly=false,inboxUtcOffset,existingQuote,
-  connect=cfg=>new pg.Client(cfg), remoteFor=serviceM8, wait=sleep, scheduled, batchDeadline=Infinity,
+  connect=cfg=>new pg.Client(cfg), remoteFor=serviceM8, wait=sleep, scheduled, batchDeadline=Infinity, checkpoint,
 }){
   const port=Number(db?.port);
   client=client||null;
@@ -117,7 +117,7 @@ export async function runKatwillPilot({
         async confirm(step,target){requireOk(await rpc('confirm',[id,step,target]),'receipt_not_confirmed');},
       });
     }};
-    result=await runPilot(permit,{remote:intake,ledger,map,uuid:randomUUID,inspect:inspectImage,digest,sleep:wait,now,preflightOnly});
+    result=await runPilot(permit,{remote:intake,ledger,map,uuid:randomUUID,inspect:inspectImage,digest,sleep:wait,now,preflightOnly,checkpoint});
   }catch(e){
     result={status:'review',reason:e.hold??'runtime_unavailable'};
   }finally{
