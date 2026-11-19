@@ -12,6 +12,8 @@ import {map} from './mapping.mjs';
 import {ledgerFor} from './postgres.mjs';
 import {readBounded,serviceM8} from './servicem8.mjs';
 import {pilotServer} from './pilot-http.mjs';
+import {inspectImage} from './images.mjs';
+import sharp from 'sharp';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
@@ -19,6 +21,14 @@ const digest=b=>createHash('sha256').update(b).digest('hex');
 const id='00000000-0000-4000-8000-000000000001';
 test('same pilot engine and stubs as hosted graph',async()=>{
   assert.equal((await scenarios({runPilot,map,digest},stubLedger)).cases,8);
+});
+test('live and read-only preflight use the same full image decoder',async()=>{
+  const image=()=>sharp({create:{width:16,height:16,channels:3,background:'blue'}});
+  const jpg=await image().jpeg().toBuffer();
+  assert.equal(await inspectImage(jpg),'jpg');
+  assert.equal(await inspectImage(await image().png().toBuffer()),'png');
+  assert.equal(await inspectImage(jpg.subarray(0,-40)),null);
+  assert.equal(await inspectImage(await image().webp().toBuffer()),null);
 });
 test('durable PostgreSQL intents, one shot and wrong receipt',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'cooltech-quotes-'));

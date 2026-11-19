@@ -1,24 +1,14 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {setTimeout as sleep} from 'node:timers/promises';
 import pg from 'pg';
-import sharp from 'sharp';
-import {runPilot,MAX_FILE} from './engine.mjs';
+import {runPilot} from './engine.mjs';
 import {ledgerFor} from './postgres.mjs';
 import {serviceM8} from './servicem8.mjs';
 import {map} from './mapping.mjs';
 import {pilotServer} from './pilot-http.mjs';
+import {inspectImage} from './images.mjs';
 
 const digest=b=>createHash('sha256').update(b).digest('hex');
-async function inspect(bytes) {
-  if(!bytes?.length||bytes.length>MAX_FILE)return null;
-  try{
-    const image=sharp(bytes,{limitInputPixels:16000000,failOn:'warning'});
-    const {format,pages}=await image.metadata();
-    if((pages??1)!==1||!['jpeg','png'].includes(format))return null;
-    await image.raw().toBuffer(); // fully decode; no magic-byte-only acceptance
-    return format==='jpeg'?'jpg':'png';
-  }catch{return null;}
-}
 
 // Loopback only. Terminate HTTPS and enforce a Katwill-only ingress rule at a
 // dedicated reverse proxy; never mount this as a public unauthenticated route.
@@ -33,7 +23,7 @@ const storageHosts=(process.env.COOLTECH_STORAGE_HOSTS??'').split(',').filter(Bo
 const server=pilotServer({token,permit,consume:ledger.consume,
   run(p){
     const remote=serviceM8({key,storageHosts});
-    return runPilot(p,{remote,ledger,map,uuid:randomUUID,inspect,digest,sleep});
+    return runPilot(p,{remote,ledger,map,uuid:randomUUID,inspect:inspectImage,digest,sleep});
   }
 });
 server.listen(Number(process.env.COOLTECH_PILOT_PORT??8741),'127.0.0.1');
