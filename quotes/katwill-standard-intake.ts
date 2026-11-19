@@ -50,7 +50,7 @@ for(const r of rows){
  if(seen.has(r.uuid)||!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(r.uuid))continue;
  seen.add(r.uuid);
  if(t<cutoff||!(t<=now)||now-t>=86400000||![true,1,'1','true'].includes(r.active)||![false,0,'0','false'].includes(r.is_archived)||!empty(r.converted_to_job_uuid)||!(empty(r.snooze_until_timestamp)||r.snooze_until_timestamp==='0000-00-00 00:00:00'))continue;
- if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.from_email||'')||r.from_email.toLowerCase()==='admin@sm8setup.com.au')continue;
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.from_email||''))continue;
  if(/^\s*online service enquiry/i.test(r.message_text||'')||/new enquiry\s*[-\u2010-\u2015]\s*cooltech website/i.test(subject))continue;
  if(/^\s*New quote request:/i.test(subject)&&/New website quote request/i.test(text)&&/^\s*Page URL:\s*https:\/\/cooltechac\.com\.au\/[^\s]*\s*$/im.test(text))candidates++;
 }

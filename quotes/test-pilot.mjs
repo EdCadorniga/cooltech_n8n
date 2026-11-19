@@ -49,8 +49,12 @@ test('20-item intake excludes pre-rollout, pilot, unrelated and duplicate record
     message_text:'New website quote request\nPage URL: https://cooltechac.com.au/quote/'};
   const stamp=Date.parse('2026-11-19T09:00:00Z');
   assert.equal(timestampOf(base.timestamp),stamp);
-  assert.equal(selectInbox([base,base,{...base,subject:'Other'},{...base,from_email:'admin@sm8setup.com.au'}],
-    stamp-1,stamp+1).length,1);
+  // Template-gated intake (2026-11-19): admin sender is admitted when the
+  // quote template matches; without the template it stays excluded.
+  assert.equal(selectInbox([base,base,{...base,subject:'Other'},{...base,uuid:'00000000-0000-4000-8000-000000000002',from_email:'admin@sm8setup.com.au'}],
+    stamp-1,stamp+1).length,2);
+  assert.equal(selectInbox([{...base,uuid:'00000000-0000-4000-8000-000000000003',from_email:'admin@sm8setup.com.au',subject:'Other'}],
+    stamp-1,stamp+1).length,0);
   assert.equal(selectInbox([base],stamp+1,stamp+2).length,0);
   assert.equal(selectInbox([{...base,subject:base.subject+' New Enquiry - Cooltech Website'}],stamp-1,stamp+1).length,0);
   assert.throws(()=>selectInbox(Array(21).fill(base),stamp-1,stamp+1));

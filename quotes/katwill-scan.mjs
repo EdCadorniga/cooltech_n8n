@@ -11,7 +11,7 @@ export const timestampOf=raw=>{
 export function scheduledMatch(row){
   if(!row||!UUID.test(row.uuid??'')||flag(row.active)!==true||flag(row.is_archived)!==false||
     !blank(row.converted_to_job_uuid)||!unsnoozed(row.snooze_until_timestamp)||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.from_email??'')||row.from_email.toLowerCase()==='admin@sm8setup.com.au')return false;
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.from_email??''))return false;
   const body=String(row.message_text||row.body||'');
   if(/^\s*online service enquiry/i.test(row.message_text??'')||
     /new enquiry\s*[-\u2010-\u2015]\s*cooltech website/i.test(row.subject??''))return false;
