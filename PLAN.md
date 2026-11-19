@@ -1,5 +1,7 @@
 # Workflow Plan: COOLTECH_Inbox_to_Job
 
+> **2026-11-19 note (quotes side):** The Website Quotes workflow `WLNTc3jAC37vdSqE` completed its audit; 65 fixes were applied and published (version `f6624586-5e4e-4e34-85db-15398e6a5f32`, 52 nodes). This jobs workflow is **unchanged**: active, published `358bb45b-3677-487b-8274-7362e8b6500b`, draft `3558c490-c81b-4556-a517-6f99b3909871`, no pending executions. The planned combination (single ServiceM8 subscription → one callback URL → one classifier routing the delivered UUID to quotes or jobs) is **deferred** and requires separate approval; do not edit/publish/run this workflow, replay any pilot, or process backlog as part of quotes work. See `PLAN_Website_Quotes.md`.
+
 ## Goal
 
 Poll ServiceM8 inbox, convert matching messages to jobs with proper descriptions, contact info, and queue assignment. Runs on the **katwill** n8n instance.
