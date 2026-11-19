@@ -2,21 +2,25 @@
 
 ## Current pilot handoff
 
-**No private nodes — current requirement.** The custom-node publication was
-paused and `WLNTc3jAC37vdSqE` is inactive. Draft
-`123e43fb-c25a-4294-bd62-724b6093feff` uses the same installed ServiceM8 inbox
-node as the jobs workflow, plus built-in triggers and Code. Hosted read-only
-run `286898` inspected 20 messages, found zero candidates and made no writes.
-The five-minute trigger is present in the draft but is not running.
-`katwill-standard-intake.ts` records the new intake; the previous expanded
-workflow is historical only. Do not restore it to production.
+**Standard-node production build — `c21f6f97-0136-4fac-b071-436a0b96337a`.**
+The live workflow has 51 nodes and zero private `CUSTOM.*` nodes. It uses the
+installed ServiceM8 node (same as the jobs workflow) plus built-in Schedule,
+Code, Switch, SplitInBatches, HTTP Request, Edit Image and Postgres nodes.
+Every five minutes it scans the latest 20 inbox items, claims each eligible
+new enquiry once in the dedicated Cooltech ledger, re-reads and maps it,
+validates photos, creates an unsent Quote, adds the contact and internal diary
+note, uploads the photos via multipart, verifies each exact UUID readback,
+then moves the Quote to `X-New Website Quotes` and records the outcome.
+Unresolved writes stay in the ledger and are never blindly recreated.
+Production run `286946` succeeded with zero eligible enquiries and zero
+writes. A synthetic candidate passed mapping, claim, photo-sentinel, plan
+sealing and the unresolved-write branches in test runs. No eligible live
+submission has exercised the full write path yet. The completed pilot is not
+replayable; do not process backlog or edit the live jobs workflow.
 
-**Resume:** Build the missing write branch with ordinary n8n nodes. Verify a
-standard Postgres credential can reach the dedicated ledger with TLS
-certificate verification; never use the shared `Postgres account`. Verify
-the standard-node file download/upload limits and exact-UUID readbacks before
-resuming quote processing. Review the intake gap before choosing any replay;
-do not automatically process old mail or the pilot. Keep live jobs unchanged.
+**Resume:** Monitor the five-minute executions and the ledger
+`batch_results` table. Review the first eligible new enquiry end to end in
+ServiceM8. Do not restore the custom-node versions.
 
 **Expanded production canvas — `0d1822fc-8858-4f5d-a700-32f31ec20998`.**
 The published 18-node revision replaces the single batch node with real
