@@ -29,7 +29,7 @@ export function approval(p, now) {
   return {cutoff,until};
 }
 
-export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,now=Date.now}) {
+export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,now=Date.now,preflightOnly=false}) {
   let step='approval';
   let quote;
   try {
@@ -41,7 +41,8 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
         const stamp=sourceTimestamp(raw?.timestamp,p.inboxUtcOffset);
         if (!raw||raw.uuid!==p.source||flag(raw.active)!==true||flag(raw.is_archived)!==false||
             !blank(raw.converted_to_job_uuid)||!unsnoozed(raw.snooze_until_timestamp)||
-            raw.from_email?.toLowerCase()!==p.sender.toLowerCase()||!(window.cutoff<=stamp&&stamp<=now()))
+            raw.from_email?.toLowerCase()!==p.sender.toLowerCase()||!(window.cutoff<=stamp&&stamp<=now())||
+            (p.expectedPhotos!==undefined&&stamp<=now()-86400000))
           hold('source_ineligible');
         const mapped=map({...raw,timestamp:new Date(stamp).toISOString(),archived:false,converted_to_job_uuid:'',clients:[p.client],cutoff:p.cutoff,files:[]});
         if(mapped.route!=='quote')hold('template_ineligible');
@@ -75,6 +76,8 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
         const row=originals.find(r=>r.uuid===id);
         await add(await remote.file(id),String(row.attachment_name??'email-file').replace(/\.[^.]+$/,''),false);
       }
+      if(p.expectedPhotos!==undefined&&files.size!==p.expectedPhotos)hold('unexpected_photo_count');
+      if(preflightOnly)return {status:'preflight_verified',files:files.size};
       // Freeze the mapped values and ordered manifest without storing source text or file bytes.
       await tx.plan(digest(JSON.stringify([m.job,m.contact,m.internalNote,[...files.values()].map(f=>[f.hash,f.name])])));
       const fresh=(await source()).raw;

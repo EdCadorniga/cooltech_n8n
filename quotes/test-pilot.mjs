@@ -8,6 +8,8 @@ import {once} from 'node:events';
 import {PGlite} from '@electric-sql/pglite';
 import {scenarios,stubLedger} from './scenarios.mjs';
 import {runPilot} from './engine.mjs';
+import {QUEUE} from './engine.mjs';
+import {runKatwillPilot} from './katwill-runtime.mjs';
 import {map} from './mapping.mjs';
 import {ledgerFor} from './postgres.mjs';
 import {readBounded,serviceM8} from './servicem8.mjs';
@@ -19,13 +21,102 @@ import {fileURLToPath} from 'node:url';
 
 const digest=b=>createHash('sha256').update(b).digest('hex');
 const id='00000000-0000-4000-8000-000000000001';
+test('Katwill runtime verifies one Quote and three decoded photos with no repeat POST',async()=>{
+  const db=new PGlite();
+  const uid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+  const client=uid(2),baseline=uid(3),lost=uid(4);
+  const bindingSql="SELECT current_database()='cooltech_quotes'";
+  const migration=readFileSync(new URL('./katwill-ledger.sql',import.meta.url),'utf8');
+  const testDb=(await db.query('SELECT current_database() AS name')).rows[0].name;
+  const stamp=new Date(Date.now()-1000).toISOString();
+  const remoteRows=new Map(), uploaded=new Map(), posts=[];
+  const photos=await Promise.all(['blue','red','green'].map(background=>
+    sharp({create:{width:16,height:16,channels:3,background}}).png().toBuffer()));
+  let hide=false;
+  const remote={
+    async get(resource,k){
+      if(resource==='company')return {uuid:client,active:1};
+      if(resource==='queue')return {uuid:QUEUE,name:'X-New Website Quotes',active:1};
+      if(resource==='job'&&k===baseline)return {uuid:k,queue_uuid:QUEUE,status:'Quote',active:1,quote_sent:0};
+      if(resource==='inboxmessage')return {uuid:k,active:1,is_archived:0,converted_to_job_uuid:null,
+        snooze_until_timestamp:null,from_email:'admin@sm8setup.com.au',timestamp:stamp,
+        message_text:`New website quote request
+Job
+System Split
+Photo: Inside wall https://cooltechac.com.au/wp-content/uploads/elementor/forms/1.png
+Photo: Outdoor spot https://cooltechac.com.au/wp-content/uploads/elementor/forms/2.png
+Photo: Switchboard https://cooltechac.com.au/wp-content/uploads/elementor/forms/3.png
+ServiceM8 job notes (copy and paste)
+Job address: 1 Fixture Lane
+Contact: Fixture Person 0400 000 000
+Email: test@example.invalid
+Category: Install quote
+Status: Quote
+Job description:
+INSTALL QUOTE: SPLIT
+Fixture scope`};
+      return hide&&resource==='job'?null:remoteRows.get(resource+k)??null;
+    },
+    async list(resource,field,k){return [...remoteRows].filter(([p,r])=>p.startsWith(resource)&&r[field]===k).map(([,r])=>r);},
+    async create(resource,row){
+      posts.push(resource);
+      remoteRows.set(resource+row.uuid,{...row,...(resource==='job'?{quote_sent:0}:{})});
+      if(resource==='job')throw new Error('response lost after commit');
+      return row.uuid;
+    },
+    async photo(url){return photos[Number(url.at(-5))-1];},
+    async upload(k,b){posts.push('bytes');uploaded.set(k,b);},
+    async file(k){return uploaded.get(k)??null;},
+  };
+  const args={source:id,client,baseline,key:'synthetic',db:{host:'fixture.invalid',port:5432,password:'fixture'},
+    remoteFor:()=>remote,wait:async()=>{},
+    connect:cfg=>{
+      assert.equal(cfg.database,'cooltech_quotes');
+      assert.equal(cfg.user,'cooltech_quote_runtime');
+      assert.equal(cfg.ssl.rejectUnauthorized,true);
+      return {
+        connect:()=>db.exec('SET ROLE cooltech_quote_runtime'),
+        // PGlite uses a single physical session. Production requires a direct
+        // login, not SET ROLE; this substitution is fixture-only.
+        query:(sql,params)=>db.query(sql.startsWith(bindingSql)?
+          sql.replace("current_database()='cooltech_quotes'",`current_database()='${testDb}'`)
+            .replace('AND session_user=current_user',''):sql,params),
+        end:()=>db.exec('RESET ROLE'),
+      };
+    }};
+  try{
+    await db.exec(migration.replace("current_database() <> 'cooltech_quotes'",`current_database() <> '${testDb}'`));
+    await db.exec(`CREATE ROLE cooltech_quote_runtime;
+      GRANT USAGE ON SCHEMA cooltech_quotes TO cooltech_quote_runtime;
+      GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA cooltech_quotes TO cooltech_quote_runtime`);
+    for(const source of [id,lost])await db.query(`INSERT INTO cooltech_quotes.pilot
+      (source,client,baseline_quote,opens_at,closes_at,inbox_utc_offset)
+      VALUES($1,$2,$3,now()-interval '1 minute',now()+interval '10 minutes','+11:00')`,[source,client,baseline]);
+    assert.equal((await runKatwillPilot({...args,preflightOnly:true})).status,'preflight_verified');
+    assert.deepEqual(posts,[]);
+    assert.equal((await db.query('SELECT claimed_at FROM cooltech_quotes.pilot WHERE source=$1',[id])).rows[0].claimed_at,null);
+    const result=await runKatwillPilot(args);
+    assert.equal(result.status,'verified',JSON.stringify(result));
+    assert.equal(result.files,3);
+    assert.equal(remoteRows.get('job'+result.quote).job_address,'1 Fixture Lane');
+    assert.deepEqual(posts,['job','jobcontact','note','attachment','bytes','attachment','bytes','attachment','bytes']);
+    assert.equal((await runKatwillPilot(args)).reason,'permit_closed_or_used');
+    hide=true;
+    const failure=await runKatwillPilot({...args,source:lost});
+    assert.equal(failure.reason,'write_unresolved',JSON.stringify(failure));
+    assert.equal((await runKatwillPilot({...args,source:lost})).reason,'permit_closed_or_used');
+    assert.equal(posts.filter(p=>p==='job').length,2); // one for each approved source
+    assert.equal((await db.query('SELECT count(*)::int AS n FROM cooltech_quotes.pilot WHERE closed_at IS NOT NULL')).rows[0].n,2);
+    assert.equal((await db.query("SELECT verified_at FROM cooltech_quotes.intent WHERE source=$1 AND step='quote'",[lost])).rows[0].verified_at,null);
+  }finally{await db.close();}
+});
 test('Katwill ledger: only a live permit can mint each intent once',async()=>{
   const db=new PGlite();
   const client='00000000-0000-4000-8000-000000000002';
   const target='00000000-0000-4000-8000-000000000003';
   const hash=digest('file');
   const check=async(sql,params,expected)=>assert.equal((await db.query(sql,params)).rows[0].ok,expected);
-  const claim=(source,company,expected)=>check('SELECT cooltech_quotes.claim($1,$2) AS ok',[source,company],expected);
+  const claim=(source,company,expected)=>check('SELECT cooltech_quotes.claim($1,$2,$3) AS ok',[source,company,target],expected);
   const reserve=(step,uuid,expected)=>check('SELECT cooltech_quotes.reserve($1,$2,$3) AS ok',[id,step,uuid],expected);
   const confirm=(step,uuid,expected)=>check('SELECT cooltech_quotes.confirm($1,$2,$3) AS ok',[id,step,uuid],expected);
   try{
@@ -38,14 +129,16 @@ test('Katwill ledger: only a live permit can mint each intent once',async()=>{
     await db.exec(`CREATE ROLE cooltech_quote_runtime;
       GRANT USAGE ON SCHEMA cooltech_quotes TO cooltech_quote_runtime;
       GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA cooltech_quotes TO cooltech_quote_runtime;`);
-    await db.query(`INSERT INTO cooltech_quotes.pilot(source,client,opens_at,closes_at)
-      VALUES ($1,$2,now()-interval '1 minute',now()+interval '10 minutes')`,[id,client]);
+    await db.query(`INSERT INTO cooltech_quotes.pilot(source,client,baseline_quote,opens_at,closes_at,inbox_utc_offset)
+      VALUES ($1,$2,$3,now()-interval '1 minute',now()+interval '10 minutes','+11:00')`,[id,client,target]);
     await db.exec('SET ROLE cooltech_quote_runtime');
     await assert.rejects(db.query('SELECT * FROM cooltech_quotes.pilot'),/permission denied/);
     await reserve('quote',target,false);
     await claim(id,target,false);
     await claim(id,client,true);
     await claim(id,client,false);
+    await reserve('quote',target,false);
+    await check('SELECT cooltech_quotes.plan($1,$2) AS ok',[id,digest('plan')],true);
     await reserve('contact',target,false);
     await reserve('quote',target,true);
     await reserve('quote',client,false); // lost create response: no second POST

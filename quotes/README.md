@@ -2,6 +2,60 @@
 
 ## Current pilot handoff
 
+**Katwill-native implementation (local, not deployed).** The private node in
+`quotes/katwill/` runs the bounded downloader, full image decoder, ServiceM8
+read-back and durable claim inside the Katwill worker. It needs no external
+adapter host. It defaults to read-only preflight and refuses non-manual
+executions or any workflow other than `WLNTc3jAC37vdSqE`. It is not installed,
+so the hosted draft still has the sealed legacy graph. This implements the
+one-message, three-linked-photo pilot only; direct email attachments cause a
+hold. It is not a scheduled production rollout.
+
+1. **Katwill admin:** use `node quotes/stage-katwill.mjs <new-directory>` and
+   `npm ci --omit=dev` inside the staged directory on the target OS/architecture
+   (the image decoder has native dependencies). Stage the directory outside the
+   repo, and load it as a private extension using `N8N_CUSTOM_EXTENSIONS`
+   on the editor and execution workers. Validate against a matching non-live
+   n8n image before a separately approved server rollout; don't restart the
+   live instance to install it without a maintenance plan. The MCP tools do
+   not install this private extension.
+2. **DB admin:** provision `cooltech_quotes` on the existing server and apply
+   `katwill-ledger.sql` as a dedicated owner. Use a non-owner login
+   `cooltech_quote_runtime` with TLS verification; grant only DB `CONNECT`,
+   schema `USAGE`, and `EXECUTE` on `claim`, `settings`, `plan`, `reserve`,
+   `confirm`, and `close` in the ledger schema. No role memberships or object
+   ownership. Restrict this login to the dedicated DB by host access rules;
+   check other DBs are denied. Configure a **Cooltech Quote Ledger** credential
+   in n8n with the TLS hostname, password, and the CA if private. Prove real
+   concurrent claims with two sessions using a synthetic permit and no API.
+3. **Operator:** after installation, bind only the new ledger credential and
+   Cooltech's existing ServiceM8 credential. Replace the disabled legacy
+   adapter chain in `WLNTc3jAC37vdSqE` with Manual Trigger → the private node
+   in `Read-Only Preflight` mode. Disable node retries and execution data
+   retention; keep it inactive and unpublished. Check a verified client,
+   baseline Quote and only the exact approved source; if stale or ineligible,
+   stop and obtain a fresh exact UUID. Read-only mode cannot consume a permit.
+   Verify diary privacy, storage redirect hosts and account automations
+   separately; the job API alone cannot prove no notifications.
+4. **Owner approval:** agree source, client, baseline, at-most-15-minute
+   window, expected writes and cleanup. Only then may the owner insert the
+   permit (`source`, `client`, `baseline_quote`, `opens_at`, `closes_at`,
+   `inbox_utc_offset`, three expected photos) and the operator switch to
+   `Run Approved Permit Once` for a single manual run. The permit is closed by
+   the node on normal return/error; if the worker dies or closure cannot be
+   verified, set `closed_at` for that exact source and retain both tables. Go
+   back to read-only mode. Independently verify the exact Quote and inbox in
+   ServiceM8, including all openable photos, the private diary note and no
+   sends. On uncertainty inspect the exact recorded UUIDs; do not reset a
+   claim, retry a create, or perform unapproved cleanup.
+
+**Resume prompt:** Read `AGENTS.md`, `PLAN_Website_Quotes.md` and this handoff.
+Confirm the private node has been installed and the dedicated Cooltech ledger
+credential provisioned. Wire only `WLNTc3jAC37vdSqE` in read-only mode and
+complete preflight for the exact supplied UUID. If it is no longer eligible,
+ask for a fresh exact UUID. Get separate approval for one manual write and
+cleanup. Do not publish, activate, process backlog, or touch live jobs.
+
 **Latest check — 2026-11-19:** No production pilot, permit, ledger deployment,
 or ServiceM8 writes. Katwill read-only execution `286793` proved that
 `Postgres account` connects as an elevated `n8n` role to the internal `n8n`
@@ -13,12 +67,12 @@ the three-node disabled-adapter graph was restored as draft
 database on the same server, not for the internal database. The DB admin must
 provision the database and separate owner/runtime roles, apply the migration,
 and configure a new Katwill credential for the runtime role. Grant it `CONNECT`
-on the dedicated DB, `USAGE` on the ledger schema, and `EXECUTE` on the three
+on the dedicated DB, `USAGE` on the ledger schema, and `EXECUTE` on the
 named functions only; do not grant table access. Confirm the role has no
 elevated attributes or inherited privileges and cannot access n8n or other
 clients' tables. Local tests exercised the permit, denied table access and
 repeat create guard; real concurrent sessions, a hosted binding and the
-Katwill-native ServiceM8 graph remain to be verified.
+Katwill-native ServiceM8 graph remain to be verified on the host.
 
 Only the supplied inbox UUID was looked up. Its sender matched, it was active,
 unarchived, unconverted and unsnoozed, and three distinct photos decoded with
