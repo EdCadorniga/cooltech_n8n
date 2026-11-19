@@ -95,7 +95,7 @@ Read these files to get the exact parameter schema before constructing nodes:
 
 - **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
 - **Active workflow**: `tlomuOHDE0aCDwwp` (`COOLTECH_Inbox_to_Job`, 30 nodes, active and not archived; published `358bb45b-3677-487b-8274-7362e8b6500b`, draft `3558c490-c81b-4556-a517-6f99b3909871`, verified 2026-11-18). Inspect the published version for production behavior.
-- **Website Quotes**: `WLNTc3jAC37vdSqE` (52 nodes, zero `CUSTOM.*`) is published with a five-minute schedule and a ServiceM8 `inbox.message_received` webhook (`cooltech-quotes` subscription). It uses standard n8n nodes plus the installed ServiceM8 integration. Remove the schedule only after the webhook processes a real enquiry end to end. Never use `Postgres account` or replay the pilot. See the [handoff](quotes/README.md#current-pilot-handoff). Keep live jobs unchanged.
+- **Website Quotes**: `WLNTc3jAC37vdSqE` (54 nodes, zero `CUSTOM.*`) is published on the ServiceM8 `inbox.message_received` webhook (`cooltech-quotes` subscription) plus a manual read-only scan. The schedule and 20-item scan were removed; each webhook delivery processes one enquiry. It uses standard n8n nodes plus the installed ServiceM8 integration. Never use `Postgres account` or replay the pilot. See the [handoff](quotes/README.md#current-pilot-handoff). Keep live jobs unchanged.
 - **Schedule**: Every **5 minutes** (changed from 10 min on 2026-06-24)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
 - **Reference workflow**: `XFf8KEv7i8uOIRX6` ("Wauchope Solar and Electrical SM8", 66 nodes, webhook-driven — studied for multi-retry and context restoration patterns)

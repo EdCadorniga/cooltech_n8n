@@ -2,17 +2,18 @@
 
 ## Current pilot handoff
 
-**Webhook trigger added — `514673ff-1156-4cfc-ae9f-166a39e5aaf6`.**
-The published workflow has three triggers: manual read-only scan, the
-five-minute schedule, and a POST webhook at
-`https://automation.katwillservices.com.au/webhook/cooltech-inbox-hook`.
-ServiceM8 event subscription `cooltech-quotes` (`inbox.message_received`)
-points at that URL and is active with no failures. The webhook responds
-immediately (200) and runs the same 20-item intake, so delivery does not
-depend on the ServiceM8 payload shape. Test webhook execution `286951`
-succeeded with zero eligible enquiries and zero writes. Keep the schedule
-until the webhook has processed a real new enquiry end to end, then remove
-the schedule trigger in a separate change.
+**Webhook trigger — `7c338c1a-5baa-4cf7-b6c6-33189954d5a3`.**
+The published workflow has two triggers: manual read-only scan and a POST
+webhook at `https://automation.katwillservices.com.au/webhook/cooltech-inbox-hook`.
+The five-minute schedule and 20-item scan were removed. ServiceM8 event
+subscription `cooltech-quotes` (`inbox.message_received`) points at that URL
+and is active with no failures. The webhook parses the delivered UUID from
+several payload shapes, re-reads that single inbox item, and feeds it into
+the same one-at-a-time pipeline; when no UUID is present it falls back to
+the newest single inbox item. It responds immediately (200). Webhook
+executions `286971` and the no-UUID fallback succeeded with zero eligible
+enquiries and zero writes. The manual branch still scans 20 items
+read-only for checking.
 
 **Standard-node production build — `c21f6f97-0136-4fac-b071-436a0b96337a`.**
 The live workflow has 51 nodes and zero private `CUSTOM.*` nodes. It uses the
