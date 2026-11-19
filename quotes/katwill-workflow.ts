@@ -13,8 +13,8 @@ const preflight = node({
     parameters: {
       operation: 'preflight',
       source: placeholder('Exact approved inbox UUID'),
-      client: placeholder('Approved test client UUID'),
-      baseline: placeholder('Known unsent baseline Quote UUID'),
+      client: '',
+      baseline: '',
       storageHosts: '',
       inboxUtcOffset: '',
     },

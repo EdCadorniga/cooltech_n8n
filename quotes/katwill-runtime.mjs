@@ -16,7 +16,9 @@ export async function runKatwillPilot({
   connect=cfg=>new pg.Client(cfg), remoteFor=serviceM8, wait=sleep,
 }){
   const port=Number(db?.port);
-  if(![source,client,baseline].every(x=>typeof x==='string'&&UUID.test(x))||
+  client=client||null;
+  baseline=baseline||null;
+  if(![source,...(client===null?[]:[client]),...(baseline===null?[]:[baseline])].every(x=>typeof x==='string'&&UUID.test(x))||
      typeof key!=='string'||!key.trim()||!db?.host||!db?.password||!Number.isInteger(port)||port<1||port>65535)
     return {status:'review',reason:'configuration_invalid'};
   const conn=connect({
@@ -63,7 +65,7 @@ export async function runKatwillPilot({
     }
     const {opens_at,closes_at,inbox_utc_offset,expected_photos}=settings;
     const permit={
-      source,client,sender:'admin@sm8setup.com.au',
+      source,client,clientless:client===null,routeLast:true,sender:'admin@sm8setup.com.au',
       from:opens_at?.toISOString(),until:closes_at?.toISOString(),
       cutoff:opens_at&&new Date(opens_at.getTime()-86400000).toISOString(),
       inboxUtcOffset:inbox_utc_offset,expectedPhotos:expected_photos,emailFiles:[],inlineIds:[],
@@ -71,11 +73,11 @@ export async function runKatwillPilot({
     approval(permit,now());
     const remote=remoteFor({key,storageHosts,deadline:Math.min(closes_at.getTime(),now()+180000)});
     const [company,queue,example]=await Promise.all([
-      remote.get('company',client),remote.get('queue',QUEUE),remote.get('job',baseline),
+      client&&remote.get('company',client),remote.get('queue',QUEUE),baseline&&remote.get('job',baseline),
     ]);
-    requireOk(company?.uuid===client&&flag(company.active)===true,'approved_client_unavailable');
+    if(client)requireOk(company?.uuid===client&&flag(company.active)===true,'approved_client_unavailable');
     requireOk(queue?.uuid===QUEUE&&queue.name==='X-New Website Quotes'&&flag(queue.active)===true,'queue_unavailable');
-    requireOk(example?.uuid===baseline&&example.queue_uuid===QUEUE&&example.status==='Quote'&&
+    if(baseline)requireOk(example?.uuid===baseline&&example.queue_uuid===QUEUE&&example.status==='Quote'&&
       flag(example.active)===true&&flag(example.quote_sent)===false&&!example.quote_sent_stamp,'baseline_quote_unverified');
     const ledger={exclusive:async (id,task)=>{
       if(preflightOnly)return task({});

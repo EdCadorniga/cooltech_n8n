@@ -9,7 +9,8 @@ return $input.all().map(({json:m})=>{
   if(!marker)return done('skip','markers');
   if(!Number.isFinite(Date.parse(m.timestamp))||!Number.isFinite(Date.parse(m.cutoff)))return done('review','timestamp');
   if(Date.parse(m.timestamp)<Date.parse(m.cutoff)||Number(m.archived)||m.converted_to_job_uuid)return done('skip','source state');
-  if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(source)||m.clients?.length!==1||body.length>50000)return done('review','identity');
+  if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(source)||
+     m.clients?.length!==(m.clientless===true?0:1)||body.length>50000)return done('review','identity');
   const parts=body.slice(marker.index).split(/ServiceM8 job notes \(copy and paste\)/i);
   if(parts.length!==2)return done('review','template');
   const details=parts[1].trimStart();
@@ -40,7 +41,7 @@ return $input.all().map(({json:m})=>{
   }
   if(links.length>3||new Set(links.map(p=>p.label.toLowerCase())).size!==links.length||answers.join('\n').length>12000)return done('review','template bounds');
   return {json:{source,scenario:m.scenario,route:'quote',links,files:m.files,
-    job:{status:'Quote',queue_uuid:'01a1ddb2-8d2e-7fb6-a678-ec066fe0fe4b',company_uuid:m.clients[0],job_address:site,job_description:answers.join('\n')},
+    job:{status:'Quote',queue_uuid:'01a1ddb2-8d2e-7fb6-a678-ec066fe0fe4b',...(m.clientless===true?{}:{company_uuid:m.clients[0]}),job_address:site,job_description:answers.join('\n')},
     contact:{type:'JOB',first:contact[1].split(/\s+/)[0],last:contact[1].split(/\s+/).slice(1).join(' '),[phoneField]:suppliedPhone,email},
     internalNote:note+(links.length?'\n\nSource photos\n'+links.map(p=>p.label+': '+p.url).join('\n'):'')}};
 });

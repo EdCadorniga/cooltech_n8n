@@ -69,6 +69,10 @@ export function serviceM8({key,storageHosts=[],fetcher=fetch,deadline=Date.now()
       if(!writable.has(resource)||!UUID.test(body.uuid))throw fail('invalid_write');
       return write(`${resource}.json`,JSON.stringify(body),'application/json');
     },
+    routeQuote(id,queue){
+      if(queue!=='01a1ddb2-8d2e-7fb6-a678-ec066fe0fe4b')throw fail('invalid_queue');
+      return write(getPath('job',id),JSON.stringify({queue_uuid:queue}),'application/json');
+    },
     upload(id,bytes){
       if(bytes.length>MAX_FILE)throw fail('transfer_limit');
       return write(getPath('attachment',id,'file'),bytes,'application/octet-stream');

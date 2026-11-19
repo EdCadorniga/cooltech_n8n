@@ -60,15 +60,25 @@ Fixture scope`};
     async list(resource,field,k){return [...remoteRows].filter(([p,r])=>p.startsWith(resource)&&r[field]===k).map(([,r])=>r);},
     async create(resource,row){
       posts.push(resource);
-      remoteRows.set(resource+row.uuid,{...row,...(resource==='job'?{quote_sent:0}:{})});
-      if(resource==='job')throw new Error('response lost after commit');
+      remoteRows.set(resource+row.uuid,{...row,...(resource==='job'?{quote_sent:0,queue_uuid:'',company_uuid:row.company_uuid??''}:{})});
+      if(resource==='job'){
+        assert.equal(row.status,'Quote');
+        assert.equal(row.queue_uuid,undefined);
+        assert.equal(row.company_uuid,undefined);
+        throw new Error('response lost after commit');
+      }
       return row.uuid;
     },
     async photo(url){return photos[Number(url.at(-5))-1];},
     async upload(k,b){posts.push('bytes');uploaded.set(k,b);},
     async file(k){return uploaded.get(k)??null;},
+    async routeQuote(k,queue){
+      posts.push('queue');
+      remoteRows.get('job'+k).queue_uuid=queue;
+      throw new Error('queue acknowledgment lost after commit');
+    },
   };
-  const args={source:id,client,baseline,key:'synthetic',db:{host:'fixture.invalid',port:5432,password:'fixture'},
+  const args={source:id,client:'',baseline:'',key:'synthetic',db:{host:'fixture.invalid',port:5432,password:'fixture'},
     remoteFor:()=>remote,wait:async()=>{},
     connect:cfg=>{
       assert.equal(cfg.database,'cooltech_quotes');
@@ -91,7 +101,7 @@ Fixture scope`};
       GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA cooltech_quotes TO cooltech_quote_runtime`);
     for(const source of [id,lost])await db.query(`INSERT INTO cooltech_quotes.pilot
       (source,client,baseline_quote,opens_at,closes_at,inbox_utc_offset)
-      VALUES($1,$2,$3,now()-interval '1 minute',now()+interval '10 minutes','+11:00')`,[source,client,baseline]);
+      VALUES($1,NULL,NULL,now()-interval '1 minute',now()+interval '10 minutes','+11:00')`,[source]);
     assert.equal((await runKatwillPilot({...args,preflightOnly:true})).status,'preflight_verified');
     assert.deepEqual(posts,[]);
     assert.equal((await db.query('SELECT claimed_at FROM cooltech_quotes.pilot WHERE source=$1',[id])).rows[0].claimed_at,null);
@@ -99,7 +109,8 @@ Fixture scope`};
     assert.equal(result.status,'verified',JSON.stringify(result));
     assert.equal(result.files,3);
     assert.equal(remoteRows.get('job'+result.quote).job_address,'1 Fixture Lane');
-    assert.deepEqual(posts,['job','jobcontact','note','attachment','bytes','attachment','bytes','attachment','bytes']);
+    assert.equal(remoteRows.get('job'+result.quote).queue_uuid,QUEUE);
+    assert.deepEqual(posts,['job','jobcontact','note','attachment','bytes','attachment','bytes','attachment','bytes','queue']);
     assert.equal((await runKatwillPilot(args)).reason,'permit_closed_or_used');
     hide=true;
     const failure=await runKatwillPilot({...args,source:lost});
@@ -144,6 +155,7 @@ test('Katwill ledger: only a live permit can mint each intent once',async()=>{
     await reserve('quote',client,false); // lost create response: no second POST
     await confirm('quote',client,false);
     await confirm('quote',target,true);
+    await reserve('queue',target,false);
     await reserve('upload:'+hash,target,false);
     await reserve('file:'+hash,target,true);
     await confirm('file:'+hash,target,true);

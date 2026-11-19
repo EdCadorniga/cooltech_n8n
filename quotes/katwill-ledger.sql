@@ -15,8 +15,8 @@ REVOKE ALL ON SCHEMA cooltech_quotes FROM PUBLIC;
 
 CREATE TABLE cooltech_quotes.pilot (
   source uuid PRIMARY KEY,
-  client uuid NOT NULL,
-  baseline_quote uuid NOT NULL,
+  client uuid,
+  baseline_quote uuid,
   opens_at timestamptz NOT NULL,
   closes_at timestamptz NOT NULL,
   inbox_utc_offset text NOT NULL CHECK (inbox_utc_offset ~ '^[+-]((0[0-9]|1[0-3]):[0-5][0-9]|14:00)$'),
@@ -29,7 +29,7 @@ CREATE TABLE cooltech_quotes.pilot (
 
 CREATE TABLE cooltech_quotes.intent (
   source uuid NOT NULL REFERENCES cooltech_quotes.pilot(source),
-  step text NOT NULL CHECK (step ~ '^(quote|contact|note|(file|upload):[0-9a-f]{64})$'),
+  step text NOT NULL CHECK (step ~ '^(quote|contact|note|queue|(file|upload):[0-9a-f]{64})$'),
   target uuid NOT NULL,
   recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   verified_at timestamptz,
@@ -41,7 +41,8 @@ RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $$
   WITH claimed AS (
     UPDATE cooltech_quotes.pilot
     SET claimed_at = clock_timestamp()
-    WHERE source = p_source AND client = p_client AND baseline_quote = p_baseline
+    WHERE source = p_source AND client IS NOT DISTINCT FROM p_client
+      AND baseline_quote IS NOT DISTINCT FROM p_baseline
       AND claimed_at IS NULL AND closed_at IS NULL
       AND clock_timestamp() >= opens_at AND clock_timestamp() < closes_at
     RETURNING source
@@ -95,6 +96,11 @@ RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $$
     SELECT source, p_step, p_target FROM permitted
     WHERE CASE
       WHEN p_step = 'quote' THEN true
+      WHEN p_step = 'queue' THEN
+        (SELECT count(*) FROM cooltech_quotes.intent WHERE source = p_source AND verified_at IS NOT NULL
+          AND (step IN ('contact', 'note') OR step LIKE 'upload:%')) = 5
+        AND EXISTS (SELECT FROM cooltech_quotes.intent WHERE source = p_source
+          AND step = 'quote' AND target = p_target AND verified_at IS NOT NULL)
       WHEN p_step LIKE 'upload:%' THEN EXISTS (
         SELECT FROM cooltech_quotes.intent
         WHERE source = p_source AND step = 'file:' || split_part(p_step, ':', 2)

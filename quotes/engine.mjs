@@ -21,7 +21,7 @@ const hold = (code) => { throw Object.assign(new Error(code),{hold:code}); };
 export function approval(p, now) {
   const from=iso(p.from), until=iso(p.until), cutoff=iso(p.cutoff);
   const ids=[...(p.emailFiles??[]),...(p.inlineIds??[])];
-  if (![p.source,p.client].every(v=>UUID.test(v)&&v!==zero) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.sender??'') ||
+  if (![p.source,...(p.clientless===true&&p.client===null?[]:[p.client])].every(v=>UUID.test(v)&&v!==zero) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.sender??'') ||
       !Array.isArray(p.emailFiles)||!Array.isArray(p.inlineIds)||ids.length>8||new Set(ids).size!==ids.length||
       !ids.every(v=>UUID.test(v)&&v!==zero)||!(cutoff<=from&&from<=now&&now<=until&&until-from<=15*60000&&from-cutoff<=86400000)||
       (p.inboxUtcOffset!==undefined&&!validOffset(p.inboxUtcOffset))||
@@ -44,7 +44,8 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
             raw.from_email?.toLowerCase()!==p.sender.toLowerCase()||!(window.cutoff<=stamp&&stamp<=now())||
             (p.expectedPhotos!==undefined&&stamp<=now()-86400000))
           hold('source_ineligible');
-        const mapped=map({...raw,timestamp:new Date(stamp).toISOString(),archived:false,converted_to_job_uuid:'',clients:[p.client],cutoff:p.cutoff,files:[]});
+        const mapped=map({...raw,timestamp:new Date(stamp).toISOString(),archived:false,converted_to_job_uuid:'',
+          clients:p.clientless===true?[]:[p.client],clientless:p.clientless===true,cutoff:p.cutoff,files:[]});
         if(mapped.route!=='quote')hold('template_ineligible');
         return {raw,mapped};
       };
@@ -112,7 +113,10 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
         await tx.confirm(key,id);
         return {id,valid};
       };
-      const job=await record('quote','job',m.job,r=>flag(r.quote_sent)===false&&!r.quote_sent_stamp);
+      const unsent=r=>flag(r.quote_sent)===false&&!r.quote_sent_stamp;
+      const {queue_uuid,...unrouted}=m.job;
+      const job=await record('quote','job',p.routeLast?{...unrouted,quote_sent:0}:m.job,
+        r=>unsent(r)&&(!p.routeLast||blank(r.queue_uuid))&&(!p.clientless||blank(r.company_uuid)));
       quote=job.id;
       const contact=await record('contact','jobcontact',{job_uuid:quote,...m.contact});
       const note=m.internalNote?await record('note','note',{related_object:'job',related_object_uuid:quote,note:m.internalNote}):null;
@@ -143,6 +147,20 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
         if(!attached.some(a.valid)||digest((await remote.file(a.id))??'')!==f.hash)hold('attachment_changed');
       }
       if(snapshot((await source()).raw)!==snapshot(before.raw))hold('source_changed');
+      if(p.routeLast){
+        step='queue';
+        checkWindow();
+        const route=await tx.intent('queue',quote);
+        if(route.id!==quote)hold('queue_target_mismatch');
+        if(route.fresh){
+          checkWindow();
+          try{await remote.routeQuote(quote,queue_uuid);}catch(e){if(e.hold)throw e;}
+        }
+        await verify(()=>remote.get('job',quote),r=>exact(r,{uuid:quote,...m.job})&&flag(r.active)===true&&unsent(r)&&
+          (!p.clientless||blank(r.company_uuid)));
+        await tx.confirm('queue',quote);
+        if(snapshot((await source()).raw)!==snapshot(before.raw))hold('source_changed');
+      }
       return {status:'verified',quote,files:files.size};
     });
   } catch(e) {

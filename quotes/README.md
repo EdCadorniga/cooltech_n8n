@@ -2,6 +2,19 @@
 
 ## Current pilot handoff
 
+**Locally tested revision, not deployed:** ServiceM8's Job Create schema
+requires `status`, not `company_uuid`. The revised pilot creates directly
+in `Quote` status with no preselected client, verifies the submitted job
+contact and diary note, verifies all three photos, then assigns
+`X-New Website Quotes` in a separate, ledger-protected update. The inbox is
+read only; this is not the native Convert to Job action. A reference Quote
+can still be checked if available. Before replacing the hosted node code,
+review and apply the ledger migration emitted by
+`node quotes/katwill-upgrade-ledger.mjs` on the dedicated DB, stage the
+extension and confirm the restart window. Perform hosted read-only
+preflight and verify account-side sends and diary privacy before agreeing
+the one-message test permit and cleanup. No pilot write occurred.
+
 **Production infrastructure deployed — 2026-11-19.** The private node is
 installed on Katwill's shared volume and both n8n containers are healthy
 after restart. PostgreSQL 17 TLS was enabled by reload after a fresh readable
