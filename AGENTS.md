@@ -94,8 +94,8 @@ Read these files to get the exact parameter schema before constructing nodes:
 ## Active n8n Resources (current session)
 
 - **Project**: `HfMlqgFS6NFMj6hI` ("Automations Server <admin@sm8setup.com.au>")
-- **Active workflow**: `tlomuOHDE0aCDwwp` (`COOLTECH_Inbox_to_Job`, 30 nodes, active and not archived; published and draft version `358bb45b-3677-487b-8274-7362e8b6500b`, verified 2026-11-18).
-- **Website Quotes**: Inactive, unpublished draft `WLNTc3jAC37vdSqE`. See [draft handoff](quotes/README.md) and [plan](PLAN_Website_Quotes.md). Keep the live jobs workflow unchanged; no ServiceM8 test account is available.
+- **Active workflow**: `tlomuOHDE0aCDwwp` (`COOLTECH_Inbox_to_Job`, 30 nodes, active and not archived; published `358bb45b-3677-487b-8274-7362e8b6500b`, draft `3558c490-c81b-4556-a517-6f99b3909871`, verified 2026-11-18). Inspect the published version for production behavior.
+- **Website Quotes**: Manual-only, inactive, unpublished draft `WLNTc3jAC37vdSqE`; synthetic branch removed, adapter disabled and unbound. Next: finish the Katwill-native path with a Cooltech-only ledger on production PostgreSQL, then preflight and run one approved end-to-end test. See the [current pilot handoff](quotes/README.md#current-pilot-handoff) and [plan](PLAN_Website_Quotes.md). Keep the live jobs workflow unchanged; no ServiceM8 test account is available.
 - **Schedule**: Every **5 minutes** (changed from 10 min on 2026-06-24)
 - **Credential**: `Gii70BGIUVSFSVwi` ("COOLTECH ServiceM8 Credentials account")
 - **Reference workflow**: `XFf8KEv7i8uOIRX6` ("Wauchope Solar and Electrical SM8", 66 nodes, webhook-driven — studied for multi-retry and context restoration patterns)
