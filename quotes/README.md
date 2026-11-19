@@ -1,5 +1,20 @@
 # Website quote draft
 
+## EOS handoff — 2026-11-19 (next session: watch the first eligible submission)
+
+**State:** `WLNTc3jAC37vdSqE` active, published `8300c5a1-dc44-48a7-be18-4062c44e03f0` (draft == published), 48 nodes, webhook-only trigger (`/cooltech-inbox-hook`). Jobs `tlomuOHDE0aCDwwp` untouched (published `358bb45b…`, healthy). No quotes executions since 286971 (08:36 UTC) — first eligible submission has not arrived yet. Inbox holds two ineligible quote-shaped items from today; `X-New Website Quotes` holds one unsent Quote (a1f8c452 — earlier pilot record). Git on `main`, clean, session commits `e9dd8b2`, `5c0808b`, `211fce1`.
+
+**Next session plan:**
+1. Prompt the owner to send one fresh website test submission (form → ServiceM8 delivery). Watch for the new webhook execution (wait; do not fabricate a delivery).
+2. On arrival: read the execution, check ledger `batch_results` for the outcome (skip/review/verified/unresolved), then review end to end in ServiceM8: one unsent Quote in `X-New Website Quotes`, correct queue, job contact, internal diary note, photos as attachments (if submitted), inbox unchanged, no sends.
+3. If the outcome is `review`/`unresolved`, do not retry anything — inspect the recorded source/UUID only.
+4. Only after a verified first submission: draft the combine plan (single subscription → one callback URL → shared classifier + shared claim ledger; jobs migrates to exact-UUID webhook) — plan only; no build, no jobs edits, no backlog without separate approval.
+
+**Safety gates:** never use `Postgres account`; never replay the pilot or process backlog; do not edit/publish/run the live jobs workflow; no production-side pushes without separate approval.
+
+**Resume prompt:**
+> In the Cooltech repo, read `AGENTS.md`, `PLAN_Website_Quotes.md`, and the EOS handoff in `quotes/README.md`. Quotes is published webhook-only (`8300c5a1…`, 48 nodes); the first eligible live submission has not arrived yet. I will send a test submission from the website form now. Watch the next webhook execution, check the ledger `batch_results`, and review the Quote end to end in ServiceM8 (quote, queue, contact, diary, photos, no sends). Do not edit, publish, or run the live jobs workflow, replay the pilot, or process backlog. Then plan — do not build — the combination with live jobs `tlomuOHDE0aCDwwp`.
+
 ## Current pilot handoff
 
 **Single-item prune + published — 2026-11-19 (~09:30 UTC).** Removed `One enquiry at a time` (SplitInBatches) and `Summarize completed batch` (dead terminal echo) — webhook guarantees 0-or-1 item. Re-pointed `Map`/`Record unresolved early`/`Close unresolved early` xrefs to `Derive candidate from inbox item`; `Derive` → `Claim` direct; loop-feedback edges dropped (branch ends at the record node). Fixed the unconnected error branch: `Reload webhook inbox item` error output → new `Finish: reload failed`. 48 nodes, published `831bd0b5-717c-42fc-858c-bbeb148a8179`; owner rearranged nodes in UI and republished → verified `8300c5a1-dc44-48a7-be18-4062c44e03f0` (draft == published, connections + all 20 error-output branches intact, zero dead refs). Kept `Photo loop` (0–3 photos) and `One durable write step at a time` (per-step reserve/readback) — both still load-bearing.
