@@ -16,6 +16,11 @@ ServiceM8 multipart upload; file readback allows only the verified regional
 CDN and does not forward the API key. The repair ran inside Katwill using
 the deployed runtime. The draft remains in manual read-only preflight mode.
 
+**Resume prompt:** Read `AGENTS.md`, `PLAN_Website_Quotes.md`, and this
+handoff. Keep `WLNTc3jAC37vdSqE` inactive and unpublished and never replay
+the completed pilot source. Any additional pilot or rollout requires fresh
+approval and a fresh exact source. Do not edit or manually run live jobs.
+
 **One production write attempt — 2026-11-19, execution `286845`.** The
 single ledger-reserved job UUID exists: an active, unsent `Quote`, with the
 submitted address and description, no company and no queue. The workflow
