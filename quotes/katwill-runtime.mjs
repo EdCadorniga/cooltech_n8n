@@ -12,13 +12,14 @@ const requireOk=(value,hold)=>{
 };
 
 export async function runKatwillPilot({
-  source,client,baseline,key,db,storageHosts=[],now=Date.now,preflightOnly=false,inboxUtcOffset,
+  source,client,baseline,key,db,storageHosts=[],now=Date.now,preflightOnly=false,inboxUtcOffset,existingQuote,
   connect=cfg=>new pg.Client(cfg), remoteFor=serviceM8, wait=sleep,
 }){
   const port=Number(db?.port);
   client=client||null;
   baseline=baseline||null;
   if(![source,...(client===null?[]:[client]),...(baseline===null?[]:[baseline])].every(x=>typeof x==='string'&&UUID.test(x))||
+     (existingQuote&&(!UUID.test(existingQuote)||client||baseline||preflightOnly))||
      typeof key!=='string'||!key.trim()||!db?.host||!db?.password||!Number.isInteger(port)||port<1||port>65535)
     return {status:'review',reason:'configuration_invalid'};
   const conn=connect({
@@ -35,6 +36,8 @@ export async function runKatwillPilot({
     reserve:'SELECT cooltech_quotes.reserve($1,$2,$3) AS ok',
     confirm:'SELECT cooltech_quotes.confirm($1,$2,$3) AS ok',
     close:'SELECT cooltech_quotes.close($1) AS ok',
+    closeRepair:'SELECT cooltech_quotes.close_repair($1) AS ok',
+    repairPlan:'SELECT cooltech_quotes.repair_plan($1,$2) AS ok',
   }[name],args))?.ok;
   let claimed=false;
   let result;
@@ -58,6 +61,10 @@ export async function runKatwillPilot({
       const from=now();
       settings={opens_at:new Date(from),closes_at:new Date(from+180000),
         inbox_utc_offset:inboxUtcOffset,expected_photos:3};
+    }else if(existingQuote){
+      settings=await row('SELECT * FROM cooltech_quotes.claim_repair($1,$2)',[source,existingQuote]);
+      requireOk(!!settings,'repair_closed_or_used');
+      claimed=true;
     }else{
       requireOk(await rpc('claim',[source,client,baseline]),'permit_closed_or_used');
       claimed=true;
@@ -65,7 +72,7 @@ export async function runKatwillPilot({
     }
     const {opens_at,closes_at,inbox_utc_offset,expected_photos}=settings;
     const permit={
-      source,client,clientless:client===null,routeLast:true,sender:'admin@sm8setup.com.au',
+      source,client,clientless:client===null,routeLast:true,existingQuote,sender:'admin@sm8setup.com.au',
       from:opens_at?.toISOString(),until:closes_at?.toISOString(),
       cutoff:opens_at&&new Date(opens_at.getTime()-86400000).toISOString(),
       inboxUtcOffset:inbox_utc_offset,expectedPhotos:expected_photos,emailFiles:[],inlineIds:[],
@@ -83,8 +90,13 @@ export async function runKatwillPilot({
       if(preflightOnly)return task({});
       requireOk(id===source&&claimed,'permit_mismatch');
       return task({
-        async plan(hash){requireOk(await rpc('plan',[id,hash]),'plan_not_frozen');},
+        async plan(hash){requireOk(await rpc(existingQuote?'repairPlan':'plan',[id,hash]),'plan_not_frozen');},
         async intent(step,target){
+          if(existingQuote){
+            requireOk(step!=='quote','repair_cannot_create_quote');
+            const prior=await row('SELECT cooltech_quotes.repair_intent($1,$2) AS target',[id,step]);
+            if(prior?.target)return {fresh:false,id:prior.target};
+          }
           requireOk(await rpc('reserve',[id,step,target]),'intent_not_reserved');
           return {fresh:true,id:target};
         },
@@ -97,7 +109,7 @@ export async function runKatwillPilot({
   }finally{
     if(claimed){
       let closed=false;
-      try{closed=await rpc('close',[source]);}catch{}
+      try{closed=await rpc(existingQuote?'closeRepair':'close',[source]);}catch{}
       if(closed!==true)result={...result,status:'review',reason:'permit_close_unconfirmed'};
     }
     await conn.end().catch(()=>{});

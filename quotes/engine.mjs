@@ -98,14 +98,15 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
         checkWindow();
         const intent=await tx.intent(key,uuid());
         const id=intent.id;
-        const valid=row=>exact(row,{uuid:id,...fields})&&flag(row.active)===true&&extra(row);
+        const valid=row=>exact(row,{uuid:id,...fields})&&
+          (flag(row.active)===true||(['note','jobcontact'].includes(resource)&&row.active===undefined))&&extra(row);
         if(intent.fresh){
           const existing=await remote.get(resource,id);
           if(existing!==null)hold('record_id_collision');
           if(key==='quote'&&snapshot((await source()).raw)!==snapshot(before.raw))hold('source_changed');
           checkWindow();
           try {
-            const receipt=await remote.create(resource,{uuid:id,active:1,...fields,...createOnly});
+            const receipt=await remote.create(resource,{uuid:id,...(['note','jobcontact'].includes(resource)?{}:{active:1}),...fields,...createOnly});
             if(receipt != null && receipt!==id)hold('receipt_mismatch');
           } catch(e){if(e.hold)throw e;} // missing/error receipt is settled ONLY by exact read-back
         }
@@ -115,14 +116,46 @@ export async function runPilot(p,{remote,ledger,map,uuid,digest,inspect,sleep,no
       };
       const unsent=r=>flag(r.quote_sent)===false&&(!r.quote_sent_stamp||r.quote_sent_stamp==='0000-00-00 00:00:00');
       const {queue_uuid,...unrouted}=m.job;
-      const job=await record('quote','job',p.routeLast?unrouted:m.job,
-        r=>unsent(r)&&(!p.routeLast||blank(r.queue_uuid))&&(!p.clientless||blank(r.company_uuid)),
-        p.routeLast?{quote_sent:0}:{});
+      const validUnrouted=r=>unsent(r)&&(!p.routeLast||blank(r.queue_uuid))&&(!p.clientless||blank(r.company_uuid));
+      let job;
+      if(p.existingQuote){
+        step='quote';
+        const id=p.existingQuote;
+        if(!UUID.test(id)||!p.routeLast)hold('invalid_repair');
+        const valid=r=>exact(r,{uuid:id,...unrouted})&&flag(r.active)===true&&validUnrouted(r);
+        await verify(()=>remote.get('job',id),valid);
+        await tx.confirm('quote',id);
+        job={id,valid};
+      }else{
+        job=await record('quote','job',p.routeLast?unrouted:m.job,validUnrouted,p.routeLast?{quote_sent:0}:{});
+      }
       quote=job.id;
       const contact=await record('contact','jobcontact',{job_uuid:quote,...m.contact});
       const note=m.internalNote?await record('note','note',{related_object:'job',related_object_uuid:quote,note:m.internalNote}):null;
       const expected=[];
       for(const f of files.values()){
+        if(remote.attach){
+          step='attachment';
+          checkWindow();
+          const key='combined:'+f.hash;
+          const intent=await tx.intent(key,uuid());
+          const id=intent.id;
+          const valid=r=>exact(r,{uuid:id,related_object:'job',related_object_uuid:quote,attachment_name:f.name})&&
+            flag(r.active)===true&&String(r.file_type??'').replace(/^\./,'').toLowerCase()===f.ext;
+          if(intent.fresh){
+            if(await remote.get('attachment',id)!==null)hold('record_id_collision');
+            checkWindow();
+            try{
+              const receipt=await remote.attach(id,quote,f.name,f.bytes);
+              if(receipt!=null&&receipt!==id)hold('receipt_mismatch');
+            }catch(e){if(e.hold)throw e;}
+          }
+          await verify(()=>remote.get('attachment',id),valid);
+          await verify(()=>remote.file(id),bytes=>digest(bytes)===f.hash);
+          await tx.confirm(key,id);
+          expected.push({a:{id,valid},f});
+          continue;
+        }
         const a=await record('file:'+f.hash,'attachment',{related_object:'job',related_object_uuid:quote,attachment_name:f.name,file_type:'.'+f.ext});
         step='attachment_bytes';
         checkWindow();

@@ -2,6 +2,20 @@
 
 ## Current pilot handoff
 
+**Pilot verified after repair — 2026-11-19.** One unsent Quote is in
+`X-New Website Quotes`, with the submitted address, description, one matching
+job contact, one job diary note, and three JPEGs that decoded and matched the
+source bytes by SHA-256. The original inbox snapshot was unchanged; outbound
+job email and SMS histories were empty. The original and repair permits are
+closed, and the ledger and repair history are retained. No replacement Quote
+was created.
+
+The repair migration and custom node files restrict approved repair to the
+original ledger target, without Quote creation. The attachment path uses
+ServiceM8 multipart upload; file readback allows only the verified regional
+CDN and does not forward the API key. The repair ran inside Katwill using
+the deployed runtime. The draft remains in manual read-only preflight mode.
+
 **One production write attempt — 2026-11-19, execution `286845`.** The
 single ledger-reserved job UUID exists: an active, unsent `Quote`, with the
 submitted address and description, no company and no queue. The workflow

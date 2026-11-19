@@ -15,7 +15,7 @@ const preflight = node({
       source: placeholder('Exact approved inbox UUID'),
       client: '',
       baseline: '',
-      storageHosts: '',
+      storageHosts: 'data-cdn-ap-southeast-2.servicem8.com',
       inboxUtcOffset: '',
     },
     credentials: {

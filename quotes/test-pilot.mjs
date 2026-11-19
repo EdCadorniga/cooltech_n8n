@@ -27,6 +27,7 @@ test('Katwill runtime verifies one Quote and three decoded photos with no repeat
   const client=uid(2),baseline=uid(3),lost=uid(4);
   const bindingSql="SELECT current_database()='cooltech_quotes'";
   const migration=readFileSync(new URL('./katwill-ledger.sql',import.meta.url),'utf8');
+  const repairMigration=execFileSync(process.execPath,[fileURLToPath(new URL('./build-repair-migration.mjs',import.meta.url))],{encoding:'utf8'});
   const testDb=(await db.query('SELECT current_database() AS name')).rows[0].name;
   const stamp=new Date(Date.now()-1000).toISOString();
   const remoteRows=new Map(), uploaded=new Map(), posts=[];
@@ -72,6 +73,12 @@ Fixture scope`};
     },
     async photo(url){return photos[Number(url.at(-5))-1];},
     async upload(k,b){posts.push('bytes');uploaded.set(k,b);},
+    async attach(k,quote,name,b){
+      posts.push('attachment');
+      remoteRows.set('attachment'+k,{uuid:k,related_object:'job',related_object_uuid:quote,attachment_name:name,active:1,file_type:'.png'});
+      uploaded.set(k,b);
+      return k;
+    },
     async file(k){return uploaded.get(k)??null;},
     async routeQuote(k,queue){
       posts.push('queue');
@@ -97,9 +104,13 @@ Fixture scope`};
     }};
   try{
     await db.exec(migration.replace("current_database() <> 'cooltech_quotes'",`current_database() <> '${testDb}'`));
-    await db.exec(`CREATE ROLE cooltech_quote_runtime;
+    await db.exec(`CREATE ROLE cooltech_quote_runtime; CREATE ROLE cooltech_quote_owner;
       GRANT USAGE ON SCHEMA cooltech_quotes TO cooltech_quote_runtime;
-      GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA cooltech_quotes TO cooltech_quote_runtime`);
+      GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA cooltech_quotes TO cooltech_quote_runtime;
+      GRANT ALL ON SCHEMA cooltech_quotes TO cooltech_quote_owner;
+      GRANT ALL ON ALL TABLES IN SCHEMA cooltech_quotes TO cooltech_quote_owner;
+      ALTER FUNCTION cooltech_quotes.reserve(uuid,text,uuid) OWNER TO cooltech_quote_owner`);
+    await db.exec(repairMigration.replace("current_database() <> 'cooltech_quotes'",`current_database() <> '${testDb}'`));
     for(const source of [id,lost])await db.query(`INSERT INTO cooltech_quotes.pilot
       (source,client,baseline_quote,opens_at,closes_at,inbox_utc_offset)
       VALUES($1,NULL,NULL,now()-interval '1 minute',now()+interval '10 minutes','+11:00')`,[source]);
@@ -111,7 +122,7 @@ Fixture scope`};
     assert.equal(result.files,3);
     assert.equal(remoteRows.get('job'+result.quote).job_address,'1 Fixture Lane');
     assert.equal(remoteRows.get('job'+result.quote).queue_uuid,QUEUE);
-    assert.deepEqual(posts,['job','jobcontact','note','attachment','bytes','attachment','bytes','attachment','bytes','queue']);
+    assert.deepEqual(posts,['job','jobcontact','note','attachment','attachment','attachment','queue']);
     assert.equal((await runKatwillPilot(args)).reason,'permit_closed_or_used');
     hide=true;
     const failure=await runKatwillPilot({...args,source:lost});
@@ -120,6 +131,14 @@ Fixture scope`};
     assert.equal(posts.filter(p=>p==='job').length,2); // one for each approved source
     assert.equal((await db.query('SELECT count(*)::int AS n FROM cooltech_quotes.pilot WHERE closed_at IS NOT NULL')).rows[0].n,2);
     assert.equal((await db.query("SELECT verified_at FROM cooltech_quotes.intent WHERE source=$1 AND step='quote'",[lost])).rows[0].verified_at,null);
+    const existingQuote=(await db.query("SELECT target FROM cooltech_quotes.intent WHERE source=$1 AND step='quote'",[lost])).rows[0].target;
+    await db.query("INSERT INTO cooltech_quotes.repair(source,quote,expires) VALUES($1,$2,clock_timestamp()+interval '5 minutes')",[lost,existingQuote]);
+    hide=false;
+    const repaired=await runKatwillPilot({...args,source:lost,existingQuote});
+    assert.equal(repaired.status,'verified',JSON.stringify(repaired));
+    assert.equal(repaired.quote,existingQuote);
+    assert.equal(posts.filter(p=>p==='job').length,2);
+    assert.equal((await runKatwillPilot({...args,source:lost,existingQuote})).reason,'repair_closed_or_used');
   }finally{await db.close();}
 });
 test('Katwill ledger: only a live permit can mint each intent once',async()=>{

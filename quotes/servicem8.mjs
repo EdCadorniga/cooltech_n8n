@@ -43,7 +43,7 @@ export function serviceM8({key,storageHosts=[],fetcher=fetch,deadline=Date.now()
   };
   const api=(path,init={})=>request(BASE+path,{...init,headers:{...init.headers,'X-Api-Key':key}});
   const write=async (path,body,contentType)=>{
-    const r=await api(path,{method:'POST',headers:{'Content-Type':contentType},body});
+    const r=await api(path,{method:'POST',headers:contentType?{'Content-Type':contentType}:{},body});
     await r.body?.cancel();
     if(!r.ok)throw Error('write response uncertain');
     return r.headers.get('x-record-uuid');
@@ -54,9 +54,9 @@ export function serviceM8({key,storageHosts=[],fetcher=fetch,deadline=Date.now()
       return r.status===404?notFound(r):json(r);
     },
     async list(resource,field,id){
-      if(!((resource==='attachment'&&field==='related_object_uuid')||(resource==='jobcontact'&&field==='job_uuid'))||!UUID.test(id))
+      if(!((['attachment','note'].includes(resource)&&field==='related_object_uuid')||(resource==='jobcontact'&&field==='job_uuid'))||!UUID.test(id))
         throw fail('invalid_filter');
-      const q=new URLSearchParams({'$filter':`${field} eq '${id}' and active eq '1'`});
+      const q=new URLSearchParams({'$filter':`${field} eq '${id}'${resource==='attachment'?" and active eq 1":''}`});
       const r=await api(`${resource}.json?${q}`);
       if(r.headers.has('x-next-cursor')||r.headers.has('link')){
         await r.body?.cancel(); throw fail('inventory_incomplete');
@@ -72,6 +72,14 @@ export function serviceM8({key,storageHosts=[],fetcher=fetch,deadline=Date.now()
     routeQuote(id,queue){
       if(queue!=='01a1ddb2-8d2e-7fb6-a678-ec066fe0fe4b')throw fail('invalid_queue');
       return write(getPath('job',id),JSON.stringify({queue_uuid:queue}),'application/json');
+    },
+    attach(id,job,name,bytes){
+      if(![id,job].every(x=>UUID.test(x))||!/^[\w-]+\.(jpg|png)$/.test(name)||!bytes.length||bytes.length>MAX_FILE)
+        throw fail('invalid_attachment');
+      const body=new FormData();
+      for(const [k,v] of Object.entries({uuid:id,related_object:'job',related_object_uuid:job,attachment_name:name}))body.set(k,v);
+      body.set('file',new Blob([bytes],{type:name.endsWith('.jpg')?'image/jpeg':'image/png'}),name);
+      return write('attachment.json',body);
     },
     upload(id,bytes){
       if(bytes.length>MAX_FILE)throw fail('transfer_limit');

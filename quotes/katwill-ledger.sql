@@ -29,11 +29,18 @@ CREATE TABLE cooltech_quotes.pilot (
 
 CREATE TABLE cooltech_quotes.intent (
   source uuid NOT NULL REFERENCES cooltech_quotes.pilot(source),
-  step text NOT NULL CHECK (step ~ '^(quote|contact|note|queue|(file|upload):[0-9a-f]{64})$'),
+  step text NOT NULL CHECK (step ~ '^(quote|contact|note|queue|(file|upload|combined):[0-9a-f]{64})$'),
   target uuid NOT NULL,
   recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   verified_at timestamptz,
   PRIMARY KEY (source, step)
+);
+CREATE TABLE cooltech_quotes.repair (
+ source uuid PRIMARY KEY REFERENCES cooltech_quotes.pilot(source),
+ quote uuid NOT NULL,
+ expires timestamptz NOT NULL,
+ claimed_at timestamptz,
+ closed_at timestamptz
 );
 
 CREATE FUNCTION cooltech_quotes.claim(p_source uuid, p_client uuid, p_baseline uuid)
@@ -89,8 +96,11 @@ CREATE FUNCTION cooltech_quotes.reserve(p_source uuid, p_step text, p_target uui
 RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $$
   WITH permitted AS (
     SELECT source FROM cooltech_quotes.pilot
-    WHERE source = p_source AND claimed_at IS NOT NULL AND closed_at IS NULL AND plan_digest IS NOT NULL
-      AND clock_timestamp() < closes_at FOR SHARE
+    WHERE source = p_source AND claimed_at IS NOT NULL AND plan_digest IS NOT NULL
+      AND ((closed_at IS NULL AND clock_timestamp() < closes_at) OR
+        (p_step <> 'quote' AND EXISTS (SELECT FROM cooltech_quotes.repair r WHERE r.source=p_source
+          AND r.claimed_at IS NOT NULL AND r.closed_at IS NULL AND clock_timestamp() < r.expires)))
+    FOR SHARE
   ), reserved AS (
     INSERT INTO cooltech_quotes.intent (source, step, target)
     SELECT source, p_step, p_target FROM permitted
@@ -98,7 +108,7 @@ RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $$
       WHEN p_step = 'quote' THEN true
       WHEN p_step = 'queue' THEN
         (SELECT count(*) FROM cooltech_quotes.intent WHERE source = p_source AND verified_at IS NOT NULL
-          AND (step IN ('contact', 'note') OR step LIKE 'upload:%')) = 5
+          AND (step IN ('contact', 'note') OR step LIKE 'upload:%' OR step LIKE 'combined:%')) = 5
         AND EXISTS (SELECT FROM cooltech_quotes.intent WHERE source = p_source
           AND step = 'quote' AND target = p_target AND verified_at IS NOT NULL)
       WHEN p_step LIKE 'upload:%' THEN EXISTS (
