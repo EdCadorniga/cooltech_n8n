@@ -2,18 +2,21 @@
 
 ## Current pilot handoff
 
-**Locally tested revision, not deployed:** ServiceM8's Job Create schema
+**Quote-first revision:** ServiceM8's Job Create schema
 requires `status`, not `company_uuid`. The revised pilot creates directly
 in `Quote` status with no preselected client, verifies the submitted job
 contact and diary note, verifies all three photos, then assigns
 `X-New Website Quotes` in a separate, ledger-protected update. The inbox is
 read only; this is not the native Convert to Job action. A reference Quote
-can still be checked if available. Before replacing the hosted node code,
-review and apply the ledger migration emitted by
-`node quotes/katwill-upgrade-ledger.mjs` on the dedicated DB, stage the
-extension and confirm the restart window. Perform hosted read-only
-preflight and verify account-side sends and diary privacy before agreeing
-the one-message test permit and cleanup. No pilot write occurred.
+can still be checked if available. The dedicated DB migration produced by
+`node quotes/katwill-upgrade-ledger.mjs` was applied after a verified ledger
+backup, and the revised native extension files were installed with a rollback
+copy. Both n8n services were healthy after restart. Hosted manual read-only
+execution `286839` returned `preflight_verified` with three distinct decoded
+photos; manual execution retention was turned back off. The draft remains
+inactive and unpublished; the live jobs workflow's draft and published IDs
+were unchanged. No pilot permit or write. Confirm ServiceM8 account-side
+sends and diary privacy and agree to the one-message permit and cleanup.
 
 **Production infrastructure deployed — 2026-11-19.** The private node is
 installed on Katwill's shared volume and both n8n containers are healthy
@@ -27,12 +30,12 @@ Include the new database in the backup plan before any ongoing processing.
 
 `WLNTc3jAC37vdSqE`, version `b31dd8b4-a867-4417-99a4-3323ee4bc528`,
 is inactive and unpublished with Manual Trigger → native read-only preflight.
-Both credentials are bound; the approved test company and known unsent
-baseline Quote UUIDs are intentionally blank. `katwill-workflow.ts` is the
+Both credentials are bound; optional client and baseline Quote UUIDs are
+intentionally blank. `katwill-workflow.ts` is the
 sanitized native graph; `workflow.ts` is the older adapter rollback artifact.
 The exact source was fresh when rechecked with three decodable photos and
-zero direct files. ServiceM8 preflight still needs those two UUIDs and
-verification of diary privacy and account-side automation. No write run,
+zero direct files. ServiceM8 diary privacy and account-side automation still
+need verification. No write run,
 ServiceM8 or inbox mutation, or live jobs workflow edit or manual run occurred.
 
 **Native node implementation and install reference.** The private node in
