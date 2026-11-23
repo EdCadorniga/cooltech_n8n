@@ -1,6 +1,18 @@
 # Website quote draft
 
-## EOS handoff — 2026-11-20 (combined is LIVE)
+## EOS handoff — 2026-11-23 (website quote client fix)
+
+- **Live:** Combined `cnYP4BsVGBim3EWW` is active, not archived, and draft and published versions both equal `e4cafd9c-d859-4350-9170-5c82871c73bb` (109 nodes). `/cooltech-inbox-hook` is unchanged. Both legacy `_DO_NOT_DELETE` workflows remain unpublished and not archived. The prior combined version, `908e12ab-b69f-40ed-8fe8-30bdd0db9664`, is the rollback reference; do not republish without approval.
+- **Completed:** The website quote path now reuses a company-contact email match or, after a successful lookup returns no matches, creates a client named `Last, First` from the submission. It verifies the new client by exact UUID and includes `company_uuid` in the existing quote write and readback. Quote #2601866's previously blank Client was repaired and verified directly in ServiceM8; it remained a quote and was not sent. Implementation evidence: `f3fbf7e` on `main`, [workflow diff](website-quote-client-workflow-diff.json).
+- **Verification:** `node quotes/test-website-quote-client.mjs` passed (local Code-node fixtures, not a live workflow run). Read-only n8n check found no `new`, `running`, or `waiting` executions. Latest runs `292849` and `292850` were pre-fix website enquiry-to-job runs, not acceptance evidence for the quote fallback. No post-publish quote execution was available at closeout.
+- **Watch items:** The fallback UUID prevents duplicate creation for the same inbox source, not across separate submissions from the same unmatched customer; it does not create a company-contact email record. The older enquiry-to-job runs `292849`/`292850` returned different company UUIDs for the same job, a separate dedup issue to investigate read-only. Do not merge or delete records without approval.
+- **Next:** (1) Read the published graph and find the first naturally arriving unmatched website quote. (2) Verify the fallback, quote/company UUIDs, `batch_results` outcome, and that exactly one unsent quote reaches `X-New Website Quotes`. (3) Report execution IDs and any duplicate or review outcome. If no suitable submission arrives, report acceptance as pending rather than replaying anything.
+
+**Next-session starter prompt:**
+
+> In the Cooltech repo, read `AGENTS.md`, `PLAN_Website_Quotes.md`, and the 2026-11-23 handoff in `quotes/README.md`. Read-only monitor combined workflow `cnYP4BsVGBim3EWW` at `e4cafd9c`: verify the first naturally arriving unmatched website quote has the expected ServiceM8 Client, one unsent quote in the website queue, and a `verified` ledger outcome. Report execution IDs, duplicates, and errors. Do not edit or publish workflows, write to ServiceM8, trigger a test, or replay the pilot/backlog without explicit approval. Never use `Postgres account`; leave `_DO_NOT_DELETE` workflows untouched.
+
+## Historical EOS handoff — 2026-11-20 (superseded by the above)
 
 **State:** combined `cnYP4BsVGBim3EWW` (`COOLTECH_Inbox_to_Job_and_Website_Quote_COMBINED`) is **published + active at `908e12ab-b69f-40ed-8fe8-30bdd0db9664` (draft == published), 104 nodes**, sole trigger `ServiceM8 inbox webhook` `/cooltech-inbox-hook` (unchanged — `cooltech-quotes` subscription already points at it). Legacy pair unpublished/inactive and renamed `_DO_NOT_DELETE` (rollback references): `WLNTc3jAC37vdSqE` (`COOLTECH_Website_to_Quote_DO_NOT_DELETE`, 65 nodes, `09e821c2…`) and `tlomuOHDE0aCDwwp` (`COOLTECH_Inbox_to_Job_DO_NOT_DELETE`, 30 nodes, draft `3558c490…`).
 
