@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+
+const diff = JSON.parse(readFileSync(new URL('./website-quote-client-workflow-diff.json', import.meta.url), 'utf8'));
+const sequence = 'Prepare exact-UUID write sequence';
+const sources = new Map(diff.nodesAdded.map(n => [n.name, n.parameters.jsCode]));
+sources.set(sequence, diff.nodesModified.find(n => n.name === sequence).changes.parameters.jsCode.__new);
+const require = createRequire(import.meta.url);
+const jobUuid = '52d06d7f-8d94-4d2a-bb96-657a94c8ed40';
+const source = '2474e323-a19e-47f4-a925-872667ca21b8';
+const plan = { source, contact: { first: ' Pat ', last: ' Example ' }, job: { status: 'Quote', queue_uuid: jobUuid }, internalNote: 'fixture', photos: [] };
+const context = new Map([['Freeze verified Quote plan', { json: plan }], ['Merge Converted Job', { json: { jobUuid } }]]);
+const lookup = name => ({ isExecuted: context.has(name), first: () => context.get(name) });
+const run = (name, input = {}) => new Function('$input', '$', 'require', sources.get(name))(
+  { first: () => ({ json: input }) }, lookup, require,
+).map(item => item.json);
+const lookupNode = 'Search Existing Contact';
+const prepare = 'Prepare New Quote Client';
+const verify = 'Verify New Quote Client';
+const resolve = 'Resolve Quote Client UUID';
+const noMatch = { statusCode: 200, body: [] };
+context.set(lookupNode, { json: noMatch });
+const [client] = run(prepare, noMatch);
+assert.equal(client.name, 'Example, Pat');
+assert.match(client.uuid, /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-a[\da-f]{3}-[\da-f]{12}$/);
+assert.deepEqual(run(prepare, noMatch), [client]);
+context.set(prepare, { json: client });
+assert.throws(() => run(prepare, { statusCode: 503, body: [] }), /did not confirm/);
+assert.throws(() => run(verify, { statusCode: 200, body: { ...client, name: 'Wrong' } }), /readback failed/);
+context.set(verify, { json: run(verify, { statusCode: 200, body: { ...client, active: '1' } })[0] });
+context.set(resolve, { json: run(resolve)[0] });
+assert.equal(run(sequence)[0].fields.company_uuid, client.uuid);
+assert.equal(run(sequence)[0].fields.quote_sent, 0);
+context.delete(verify);
+assert.throws(() => run(resolve), /UUID not resolved/);
+context.set(lookupNode, { json: { statusCode: 200, body: [{ company_uuid: jobUuid }] } });
+context.set(resolve, { json: run(resolve)[0] });
+assert.equal(run(sequence)[0].fields.company_uuid, jobUuid);
+console.log('Website quote client regression checks passed.');

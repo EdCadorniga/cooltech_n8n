@@ -1,0 +1,325 @@
+{
+  "workflowId": "cnYP4BsVGBim3EWW",
+  "fromVersionId": "908e12ab-b69f-40ed-8fe8-30bdd0db9664",
+  "toVersionId": "e4cafd9c-d859-4350-9170-5c82871c73bb",
+  "nodesAdded": [
+    {
+      "id": "607e8e1b-09b0-442e-899b-dc0beb5d7a13",
+      "name": "Prepare New Quote Client",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6944,
+        690
+      ],
+      "parameters": {
+        "jsCode": "const lookup=$input.first().json;\nif(lookup.statusCode!==200 || !Array.isArray(lookup.body) || lookup.body.length!==0) throw Error('Company contact lookup did not confirm no matches');\nconst m=$('Freeze verified Quote plan').first().json;\nconst first=String(m.contact.first||'').trim(), last=String(m.contact.last||'').trim();\nif(!first||!m.source) throw Error('Missing quote client name or source');\nconst name=last ? last+', '+first : first;\nconst hash=require('crypto').createHash('sha256').update('cooltech-quote-client:'+m.source).digest('hex');\nconst uuid=hash.slice(0,8)+'-'+hash.slice(8,12)+'-4'+hash.slice(13,16)+'-a'+hash.slice(17,20)+'-'+hash.slice(20,32);\nreturn [{json:{uuid,name,active:1}}];"
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "6b0d9317-262d-43bf-b48a-86a30cd5c0bb",
+      "name": "Create New Quote Client",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        7168,
+        690
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "serviceM8CredentialsApi",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 12000
+        },
+        "method": "POST",
+        "url": "https://api.servicem8.com/api_1.0/company.json",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}"
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "serviceM8CredentialsApi": {
+          "id": "Gii70BGIUVSFSVwi",
+          "name": "COOLTECH ServiceM8 Credentials account"
+        }
+      }
+    },
+    {
+      "id": "f549abe8-bee7-4bcc-b4b5-a226f8cff493",
+      "name": "Read New Quote Client",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        7392,
+        690
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "serviceM8CredentialsApi",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 12000
+        },
+        "url": "={{ 'https://api.servicem8.com/api_1.0/company/' + $('Prepare New Quote Client').first().json.uuid + '.json' }}"
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "serviceM8CredentialsApi": {
+          "id": "Gii70BGIUVSFSVwi",
+          "name": "COOLTECH ServiceM8 Credentials account"
+        }
+      }
+    },
+    {
+      "id": "61494c8a-7bb7-4c84-8c17-6ca45c349ffa",
+      "name": "Verify New Quote Client",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7616,
+        690
+      ],
+      "parameters": {
+        "jsCode": "const expected=$('Prepare New Quote Client').first().json;\nconst {statusCode,body}=$input.first().json;\nif(statusCode!==200 || body?.uuid!==expected.uuid || body.name!==expected.name || ![1,'1',true].includes(body.active)) throw Error('Quote client readback failed');\nreturn [{json:{companyUuid:body.uuid}}];"
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "64a94164-8fa3-4278-af84-bbc605333439",
+      "name": "Resolve Quote Client UUID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7820,
+        640
+      ],
+      "parameters": {
+        "jsCode": "const fallback=$('Verify New Quote Client');\nconst lookup=$('Search Existing Contact').first().json;\nconst companyUuid=fallback.isExecuted ? fallback.first().json.companyUuid : (lookup.statusCode===200 ? lookup.body?.[0]?.company_uuid : null);\nif(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(companyUuid||'')) || companyUuid==='00000000-0000-0000-0000-000000000000') throw Error('Quote company UUID not resolved');\nreturn [{json:{companyUuid}}];"
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "nodesModified": [
+    {
+      "id": "d1a91b80-f03e-42c4-961b-505fb7aa3952",
+      "name": "Prepare exact-UUID write sequence",
+      "type": "n8n-nodes-base.code",
+      "changes": {
+        "onError__added": "stopWorkflow",
+        "parameters": {
+          "jsCode": {
+            "__old": "const frozen=$('Freeze verified Quote plan').first(), m=frozen.json, bin=frozen.binary||{};\nconst uuidFrom=s=>{let h1=0xdeadbeef,h2=0x41c6ce57;const str=m.source+':'+s;for(let i=0;i<str.length;i++){const ch=str.charCodeAt(i);h1=Math.imul(h1^ch,2654435761);h2=Math.imul(h2^ch,1597334677);}h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);const hex=(h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0');const hex2=(h2>>>0).toString(16).padStart(8,'0')+(h1>>>0).toString(16).padStart(8,'0');return hex.slice(0,8)+'-'+hex.slice(8,12)+'-4'+hex.slice(13,16)+'-a'+hex2.slice(1,4)+'-'+(hex+hex2).slice(0,12);};\nconst job=(()=>{try{return $('Merge Converted Job').first().json.jobUuid;}catch(e){return null;}})(); if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(job||''))) throw Error('Converted job UUID missing');\nconst {queue_uuid,...base}=m.job;\nconst items=[\n {step:'quote',target:job,resource:'job',fields:{...base,quote_sent:0}},\n {step:'contact',target:(()=>{let u=null;try{const h=$input.first()?.json?.headers||{}; u=h['x-record-uuid']||null;}catch(e){u=null;} return u||uuidFrom('contact');})(),resource:'jobcontact',fields:{job_uuid:job,...m.contact}},\n {step:'note',target:uuidFrom('note'),resource:'note',fields:{related_object:'job',related_object_uuid:job,note:m.internalNote}},\n ...m.photos.map(f=>({step:'combined:'+f.hash,target:uuidFrom('file:'+f.slot),resource:'attachment',fields:{related_object:'job',related_object_uuid:job,attachment_name:f.name,file_type:'.'+f.ext},file:f})),\n {step:'queue',target:job,resource:'job',fields:{queue_uuid}}\n];\nreturn items.map(a=>({json:{...a,source:m.source,job},...(a.file?{binary:{data:bin[a.file.slot]}}:{})}));",
+            "__new": "const frozen=$('Freeze verified Quote plan').first(), m=frozen.json, bin=frozen.binary||{};\nconst uuidFrom=s=>{let h1=0xdeadbeef,h2=0x41c6ce57;const str=m.source+':'+s;for(let i=0;i<str.length;i++){const ch=str.charCodeAt(i);h1=Math.imul(h1^ch,2654435761);h2=Math.imul(h2^ch,1597334677);}h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);const hex=(h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0');const hex2=(h2>>>0).toString(16).padStart(8,'0')+(h1>>>0).toString(16).padStart(8,'0');return hex.slice(0,8)+'-'+hex.slice(8,12)+'-4'+hex.slice(13,16)+'-a'+hex2.slice(1,4)+'-'+(hex+hex2).slice(0,12);};\nconst job=(()=>{try{return $('Merge Converted Job').first().json.jobUuid;}catch(e){return null;}})(); if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(job||''))) throw Error('Converted job UUID missing');\nconst companyUuid=$('Resolve Quote Client UUID').first().json.companyUuid;\nconst {queue_uuid,...base}=m.job;\nconst items=[\n {step:'quote',target:job,resource:'job',fields:{...base,company_uuid:companyUuid,quote_sent:0}},\n {step:'contact',target:(()=>{let u=null;try{const h=$input.first()?.json?.headers||{}; u=h['x-record-uuid']||null;}catch(e){u=null;} return u||uuidFrom('contact');})(),resource:'jobcontact',fields:{job_uuid:job,...m.contact}},\n {step:'note',target:uuidFrom('note'),resource:'note',fields:{related_object:'job',related_object_uuid:job,note:m.internalNote}},\n ...m.photos.map(f=>({step:'combined:'+f.hash,target:uuidFrom('file:'+f.slot),resource:'attachment',fields:{related_object:'job',related_object_uuid:job,attachment_name:f.name,file_type:'.'+f.ext},file:f})),\n {step:'queue',target:job,resource:'job',fields:{queue_uuid}}\n];\nreturn items.map(a=>({json:{...a,source:m.source,job},...(a.file?{binary:{data:bin[a.file.slot]}}:{})}));"
+          }
+        }
+      }
+    },
+    {
+      "id": "98144e98-aeeb-46c6-bf11-a061c3383be3",
+      "name": "Search Existing Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "changes": {
+        "parameters": {
+          "url": {
+            "__old": "={{ 'https://api.servicem8.com/api_1.0/companycontact.json?$filter=' + encodeURIComponent(\"active eq 1 and email eq '\" + $('Freeze verified Quote plan').first().json.contact.email + \"'\") }}",
+            "__new": "={{ 'https://api.servicem8.com/api_1.0/companycontact.json?$filter=' + encodeURIComponent(\"active eq 1 and email eq '\" + $('Freeze verified Quote plan').first().json.contact.email.replace(/'/g, \"''\") + \"'\") }}"
+          }
+        }
+      }
+    }
+  ],
+  "connectionsAdded": [
+    {
+      "from": "Set Converted Job Contact",
+      "to": "Resolve Quote Client UUID",
+      "type": "main",
+      "fromOutput": 0,
+      "toInput": 0
+    },
+    {
+      "from": "Set Converted Job Contact",
+      "to": "Resolve Quote Client UUID",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Search Existing Contact",
+      "to": "Record unresolved early",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Existing Contact Found?",
+      "to": "Prepare New Quote Client",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Update Existing Job Contact",
+      "to": "Resolve Quote Client UUID",
+      "type": "main",
+      "fromOutput": 0,
+      "toInput": 0
+    },
+    {
+      "from": "Update Existing Job Contact",
+      "to": "Resolve Quote Client UUID",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Prepare New Quote Client",
+      "to": "Create New Quote Client",
+      "type": "main",
+      "fromOutput": 0,
+      "toInput": 0
+    },
+    {
+      "from": "Prepare New Quote Client",
+      "to": "Record unresolved early",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Create New Quote Client",
+      "to": "Read New Quote Client",
+      "type": "main",
+      "fromOutput": 0,
+      "toInput": 0
+    },
+    {
+      "from": "Create New Quote Client",
+      "to": "Read New Quote Client",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Read New Quote Client",
+      "to": "Verify New Quote Client",
+      "type": "main",
+      "fromOutput": 0,
+      "toInput": 0
+    },
+    {
+      "from": "Read New Quote Client",
+      "to": "Record unresolved early",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Verify New Quote Client",
+      "to": "Update Converted Job",
+      "type": "main",
+      "fromOutput": 0,
+      "toInput": 0
+    },
+    {
+      "from": "Verify New Quote Client",
+      "to": "Record unresolved early",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Resolve Quote Client UUID",
+      "to": "Prepare exact-UUID write sequence",
+      "type": "main",
+      "fromOutput": 0,
+      "toInput": 0
+    },
+    {
+      "from": "Resolve Quote Client UUID",
+      "to": "Record unresolved early",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    }
+  ],
+  "connectionsRemoved": [
+    {
+      "from": "Set Converted Job Contact",
+      "to": "Prepare exact-UUID write sequence",
+      "type": "main",
+      "fromOutput": 0,
+      "toInput": 0
+    },
+    {
+      "from": "Set Converted Job Contact",
+      "to": "Prepare exact-UUID write sequence",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Search Existing Contact",
+      "to": "Update Converted Job",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Existing Contact Found?",
+      "to": "Update Converted Job",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    },
+    {
+      "from": "Update Existing Job Contact",
+      "to": "Prepare exact-UUID write sequence",
+      "type": "main",
+      "fromOutput": 0,
+      "toInput": 0
+    },
+    {
+      "from": "Update Existing Job Contact",
+      "to": "Prepare exact-UUID write sequence",
+      "type": "main",
+      "fromOutput": 1,
+      "toInput": 0
+    }
+  ],
+  "nodeGroupsAdded": [
+    {
+      "id": "ca31432b-814e-4f67-94ba-d09ed0f08e95",
+      "name": "New quote client request",
+      "nodeNames": [
+        "Create New Quote Client",
+        "Read New Quote Client"
+      ],
+      "description": "Create and read back the exact ServiceM8 client UUID."
+    }
+  ]
+}
